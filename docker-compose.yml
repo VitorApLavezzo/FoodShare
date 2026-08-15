@@ -1,0 +1,128 @@
+name: foodshare
+
+x-api-common: &api-common
+  # image explícito: garante que api, api-campinas e api-sao-paulo sempre
+  # rodem a MESMA imagem (a mais recente), evitando um nó ficar preso numa
+  # build antiga quando só `docker compose build api` é rodado.
+  image: foodshare-api
+  build:
+    context: .
+    dockerfile: infrastructure/docker/api.Dockerfile
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  environment:
+    DATABASE_URL: postgresql://foodshare:foodshare@postgres:5432/foodshare?schema=public
+    REDIS_URL: redis://redis:6379
+    JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+    JWT_EXPIRES_IN: 15m
+    JWT_REFRESH_EXPIRES_IN: 7d
+    PORT: 3000
+    CORS_ORIGIN: http://localhost:5173
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: foodshare
+      POSTGRES_PASSWORD: foodshare
+      POSTGRES_DB: foodshare
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foodshare"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Nó padrão (perfil default, sempre sobe com `docker compose up`)
+  api:
+    <<: *api-common
+    container_name: foodshare-api-limeira
+    environment:
+      DATABASE_URL: postgresql://foodshare:foodshare@postgres:5432/foodshare?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      PORT: 3000
+      CORS_ORIGIN: http://localhost:5173
+      NODE_ID: LIMEIRA
+      NODE_NAME: Node Limeira
+      NODE_CITY: Limeira
+      NODE_STATE: SP
+    ports:
+      - "3000:3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    container_name: foodshare-web
+    depends_on:
+      - api
+    environment:
+      VITE_API_URL: http://localhost:3000
+    ports:
+      - "5173:5173"
+
+  # Nó adicional para demonstrar distribuição (Fase 10/11).
+  # Uso: docker compose --profile node-campinas up
+  api-campinas:
+    <<: *api-common
+    container_name: foodshare-api-campinas
+    profiles: ["node-campinas"]
+    environment:
+      DATABASE_URL: postgresql://foodshare:foodshare@postgres:5432/foodshare?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      PORT: 3000
+      CORS_ORIGIN: http://localhost:5173
+      NODE_ID: CAMPINAS
+      NODE_NAME: Node Campinas
+      NODE_CITY: Campinas
+      NODE_STATE: SP
+    ports:
+      - "3001:3000"
+
+  api-sao-paulo:
+    <<: *api-common
+    container_name: foodshare-api-sao-paulo
+    profiles: ["node-sao-paulo"]
+    environment:
+      DATABASE_URL: postgresql://foodshare:foodshare@postgres:5432/foodshare?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      PORT: 3000
+      CORS_ORIGIN: http://localhost:5173
+      NODE_ID: SAO_PAULO
+      NODE_NAME: Node Sao Paulo
+      NODE_CITY: Sao Paulo
+      NODE_STATE: SP
+    ports:
+      - "3002:3000"
+
+volumes:
+  postgres_data:

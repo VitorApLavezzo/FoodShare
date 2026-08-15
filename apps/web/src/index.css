@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-50: #f2fbf4;
+  --color-brand-100: #e0f7e4;
+  --color-brand-200: #bfedc9;
+  --color-brand-300: #8ddba0;
+  --color-brand-400: #57c274;
+  --color-brand-500: #2fa855;
+  --color-brand-600: #1f8a44;
+  --color-brand-700: #1a6d38;
+  --color-brand-800: #185730;
+  --color-brand-900: #14482a;
+
+  --color-accent-50: #fff8ed;
+  --color-accent-100: #ffefd3;
+  --color-accent-200: #ffdba5;
+  --color-accent-300: #ffc06d;
+  --color-accent-400: #ff9f33;
+  --color-accent-500: #f9800f;
+  --color-accent-600: #ea6206;
+  --color-accent-700: #c24807;
+  --color-accent-800: #9a380e;
+  --color-accent-900: #7c300f;
+
+  --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Fraunces', 'Inter', system-ui, serif;
+}
+
+:root {
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-neutral-50 text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+::selection {
+  @apply bg-brand-200 text-brand-900;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Fundo texturizado sutil para telas de entrada (login/registro/home) */
+.bg-grain {
+  background-image: radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.05) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+:root.dark .bg-grain {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0);
+}

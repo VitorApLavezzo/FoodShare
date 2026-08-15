@@ -1,0 +1,200 @@
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { getApiErrorMessage } from '../lib/api';
+import { updateProfile, changePassword } from '../lib/account';
+import { fetchMyOrganization } from '../lib/organizations';
+import { AppHeader } from '../components/layout/AppHeader';
+import { InputField } from '../components/ui/Field';
+import { Button } from '../components/ui/Button';
+import { OrganizationForm } from '../components/OrganizationForm';
+
+const ROLE_LABEL: Record<string, string> = {
+  ADMIN: 'Administrador',
+  DONOR: 'Doador',
+  NGO: 'ONG',
+};
+
+const profileSchema = z.object({
+  name: z.string().min(2, 'Informe seu nome ou razão social.'),
+});
+type ProfileValues = z.infer<typeof profileSchema>;
+
+const passwordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Informe a senha atual.'),
+    newPassword: z.string().min(8, 'A nova senha deve ter ao menos 8 caracteres.'),
+    confirmPassword: z.string().min(1, 'Confirme a nova senha.'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'As senhas não coincidem.',
+    path: ['confirmPassword'],
+  });
+type PasswordValues = z.infer<typeof passwordSchema>;
+
+function SectionCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-neutral-200 p-6 dark:border-neutral-800">
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">{title}</h2>
+      <p className="mt-1 text-sm text-neutral-500">{description}</p>
+      <div className="mt-5">{children}</div>
+    </div>
+  );
+}
+
+function ProfileSection() {
+  const { user, setUser } = useAuth();
+  const { showToast } = useToast();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting, isDirty },
+  } = useForm<ProfileValues>({ resolver: zodResolver(profileSchema), defaultValues: { name: user?.name ?? '' } });
+
+  if (!user) return null;
+
+  const onSubmit = async (values: ProfileValues) => {
+    setServerError(null);
+    try {
+      const updated = await updateProfile(values.name);
+      setUser(updated);
+      showToast('Perfil atualizado.', 'success');
+    } catch (error) {
+      setServerError(getApiErrorMessage(error, 'Não foi possível atualizar o perfil.'));
+    }
+  };
+
+  return (
+    <SectionCard title="Perfil" description="Seu nome e informações básicas de acesso.">
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+        <InputField label="Nome" error={errors.name?.message} {...register('name')} />
+        <InputField label="E-mail" value={user.email} disabled hint="O e-mail de login não pode ser alterado." />
+        <InputField label="Papel" value={ROLE_LABEL[user.role] ?? user.role} disabled />
+        {serverError && (
+          <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+            {serverError}
+          </p>
+        )}
+        <Button type="submit" size="sm" className="self-start" loading={isSubmitting} disabled={!isDirty}>
+          Salvar alterações
+        </Button>
+      </form>
+    </SectionCard>
+  );
+}
+
+function PasswordSection() {
+  const { showToast } = useToast();
+  const [serverError, setServerError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<PasswordValues>({ resolver: zodResolver(passwordSchema) });
+
+  const onSubmit = async (values: PasswordValues) => {
+    setServerError(null);
+    try {
+      await changePassword(values.currentPassword, values.newPassword);
+      reset();
+      showToast('Senha alterada com sucesso.', 'success');
+    } catch (error) {
+      setServerError(getApiErrorMessage(error, 'Não foi possível trocar a senha.'));
+    }
+  };
+
+  return (
+    <SectionCard title="Senha" description="Recomendado trocar periodicamente.">
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+        <InputField
+          type="password"
+          label="Senha atual"
+          autoComplete="current-password"
+          error={errors.currentPassword?.message}
+          {...register('currentPassword')}
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <InputField
+            type="password"
+            label="Nova senha"
+            autoComplete="new-password"
+            error={errors.newPassword?.message}
+            {...register('newPassword')}
+          />
+          <InputField
+            type="password"
+            label="Confirmar nova senha"
+            autoComplete="new-password"
+            error={errors.confirmPassword?.message}
+            {...register('confirmPassword')}
+          />
+        </div>
+        {serverError && (
+          <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+            {serverError}
+          </p>
+        )}
+        <Button type="submit" size="sm" className="self-start" loading={isSubmitting}>
+          Trocar senha
+        </Button>
+      </form>
+    </SectionCard>
+  );
+}
+
+function OrganizationSection({ kind }: { kind: 'DONOR' | 'NGO' }) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const organizationQuery = useQuery({
+    queryKey: ['my-organization', kind],
+    queryFn: () => fetchMyOrganization(kind),
+  });
+
+  if (organizationQuery.isLoading) {
+    return <p className="text-sm text-neutral-500">Carregando dados da organização…</p>;
+  }
+  if (!organizationQuery.data) return null;
+
+  return (
+    <SectionCard
+      title={kind === 'NGO' ? 'Dados da ONG' : 'Dados do estabelecimento'}
+      description="Essas informações aparecem para quem visualiza suas doações/reservas."
+    >
+      <OrganizationForm
+        kind={kind}
+        organization={organizationQuery.data}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ['my-organization', kind] });
+          showToast('Dados da organização atualizados.', 'success');
+        }}
+      />
+    </SectionCard>
+  );
+}
+
+export function AccountPage() {
+  const { user } = useAuth();
+  if (!user) return null;
+
+  return (
+    <div>
+      <AppHeader />
+      <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-10">
+        <div>
+          <h1 className="font-display text-2xl font-medium text-neutral-900 dark:text-white">Minha conta</h1>
+          <p className="mt-1 text-sm text-neutral-500">Gerencie seu perfil, senha e dados da organização.</p>
+        </div>
+
+        <ProfileSection />
+        <PasswordSection />
+        {(user.role === 'DONOR' || user.role === 'NGO') && <OrganizationSection kind={user.role} />}
+      </div>
+    </div>
+  );
+}

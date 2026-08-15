@@ -1,0 +1,68 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { OrganizationType } from '@prisma/client';
+import { AddressDto } from './address.dto';
+
+const ORGANIZATION_TYPES = ['RESTAURANT', 'MARKET', 'BAKERY', 'OTHER'] as const;
+
+export class CreateOrganizationDto {
+  @ApiProperty()
+  @IsString()
+  legalName!: string;
+
+  @ApiProperty()
+  @IsString()
+  tradeName!: string;
+
+  @ApiProperty({ required: false, description: 'CNPJ, opcional para ONGs informais.' })
+  @IsOptional()
+  @IsString()
+  document?: string;
+
+  @ApiProperty({ enum: ORGANIZATION_TYPES, required: false, description: 'Apenas para doadores.' })
+  @IsOptional()
+  @IsIn(ORGANIZATION_TYPES)
+  type?: OrganizationType;
+
+  @ApiProperty()
+  @IsString()
+  phone!: string;
+
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty()
+  @IsString()
+  responsibleName!: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  operatingHours?: string;
+
+  @ApiProperty({ required: false, description: 'Capacidade estimada de atendimento (apenas ONG).' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  estimatedCapacity?: number;
+
+  @ApiProperty({ type: AddressDto })
+  @ValidateNested()
+  @Type(() => AddressDto)
+  address!: AddressDto;
+}

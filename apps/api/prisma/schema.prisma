@@ -1,0 +1,336 @@
+// FoodShare - schema de dados
+// Decisões:
+// - Todas as entidades distribuídas relevantes possuem nodeId + version (optimistic locking / rastreio de origem).
+// - Reserva de doação usa transação + lock de linha (SELECT ... FOR UPDATE) no service, não apenas Prisma default.
+// - Soft delete via campo deletedAt onde aplicável (organizations, donations).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth / Usuários ----------
+
+enum UserRole {
+  ADMIN
+  DONOR
+  NGO
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  nodeId       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizationLinks OrganizationUser[]
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  pickupsConfirmed  Pickup[]           @relation("PickupConfirmedBy")
+
+  @@index([role])
+  @@index([nodeId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------- Organizações (Doadores e ONGs) ----------
+
+enum OrganizationType {
+  RESTAURANT
+  MARKET
+  BAKERY
+  OTHER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  BLOCKED
+}
+
+model Address {
+  id           String   @id @default(uuid())
+  street       String
+  number       String?
+  complement   String?
+  neighborhood String
+  city         String
+  state        String
+  zipCode      String
+  latitude     Float
+  longitude    Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizations Organization[]
+
+  @@index([city, state])
+  @@index([latitude, longitude])
+  @@map("addresses")
+}
+
+// Um único modelo Organization cobre Doador e ONG (kind), evitando duplicação de
+// campos comuns (endereço, aprovação, contato). Regras específicas de cada perfil
+// (ex.: capacidade de atendimento para ONG) ficam em campos opcionais.
+enum OrganizationKind {
+  DONOR
+  NGO
+}
+
+model Organization {
+  id                String            @id @default(uuid())
+  kind              OrganizationKind
+  legalName         String
+  tradeName         String
+  document          String? // CNPJ, opcional para ONGs informais
+  type              OrganizationType?
+  phone             String
+  email             String
+  responsibleName   String
+  description       String?
+  operatingHours    String?
+  estimatedCapacity Int? // capacidade aproximada de atendimento (ONG)
+  approvalStatus    ApprovalStatus    @default(PENDING)
+  nodeId            String
+  version           Int               @default(1)
+  addressId         String
+  address           Address           @relation(fields: [addressId], references: [id])
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  deletedAt         DateTime?
+
+  users        OrganizationUser[]
+  donations    Donation[]         @relation("DonorOrganization")
+  reservations Reservation[]      @relation("NgoOrganization")
+
+  @@index([kind, approvalStatus])
+  @@map("organizations")
+}
+
+model OrganizationUser {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, userId])
+  @@map("organization_users")
+}
+
+// ---------- Doações ----------
+
+enum DonationCategory {
+  PREPARED_MEALS
+  FRUITS
+  VEGETABLES
+  LEGUMES
+  PACKAGED_GOODS
+  BAKERY
+  BEVERAGES
+  OTHER
+}
+
+enum DonationStatus {
+  AVAILABLE
+  RESERVED
+  PICKUP_PENDING
+  PICKED_UP
+  DISTRIBUTED
+  EXPIRED
+  CANCELLED
+}
+
+model Donation {
+  id                  String           @id @default(uuid())
+  donorOrganizationId String
+  donorOrganization   Organization     @relation("DonorOrganization", fields: [donorOrganizationId], references: [id])
+  nodeId              String
+  foodName            String
+  category            DonationCategory
+  description         String?
+  quantity            Float
+  unit                String
+  batch               String?
+  storageCondition    String?
+  notes               String?
+  availableAt         DateTime
+  pickupDeadline      DateTime
+  expiresAt           DateTime
+  status              DonationStatus   @default(AVAILABLE)
+  version             Int              @default(1)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  deletedAt           DateTime?
+
+  reservations Reservation[]
+  auditLogs    AuditLog[]
+
+  @@index([status])
+  @@index([expiresAt])
+  @@index([category])
+  @@index([nodeId])
+  @@map("donations")
+}
+
+// ---------- Reservas / Retiradas ----------
+
+enum ReservationStatus {
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+model Reservation {
+  id                String            @id @default(uuid())
+  donationId        String
+  donation          Donation          @relation(fields: [donationId], references: [id])
+  ngoOrganizationId String
+  ngoOrganization   Organization      @relation("NgoOrganization", fields: [ngoOrganizationId], references: [id])
+  status            ReservationStatus @default(ACTIVE)
+  reservedAt        DateTime          @default(now())
+  cancelledAt       DateTime?
+  pickupCode        String            @unique
+  nodeId            String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  pickup Pickup?
+
+  @@index([status])
+  @@index([donationId])
+  @@map("reservations")
+}
+
+model Pickup {
+  id                String      @id @default(uuid())
+  reservationId     String      @unique
+  reservation       Reservation @relation(fields: [reservationId], references: [id])
+  confirmedByUserId String
+  confirmedByUser   User        @relation("PickupConfirmedBy", fields: [confirmedByUserId], references: [id])
+  confirmedAt       DateTime    @default(now())
+  notes             String?
+  nodeId            String
+
+  @@map("pickups")
+}
+
+// ---------- Nós distribuídos / Sincronização ----------
+
+enum NodeStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+}
+
+model Node {
+  id            String     @id @default(uuid())
+  code          String     @unique // ex: LIMEIRA
+  name          String
+  city          String
+  state         String
+  status        NodeStatus @default(OFFLINE)
+  endpoint      String?
+  lastHeartbeat DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@map("nodes")
+}
+
+enum SyncEventStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+model SyncEvent {
+  id            String          @id @default(uuid())
+  eventId       String          @unique // uuid global, usado para idempotência
+  originNode    String
+  sequence      BigInt
+  eventType     String
+  entityId      String
+  payload       Json
+  status        SyncEventStatus @default(PENDING)
+  retryCount    Int             @default(0)
+  errorMessage  String?
+  correlationId String?
+  createdAt     DateTime        @default(now())
+  syncedAt      DateTime?
+
+  @@index([status])
+  @@index([originNode])
+  @@map("sync_events")
+}
+
+// ---------- Auditoria ----------
+
+model AuditLog {
+  id            String    @id @default(uuid())
+  entity        String
+  entityId      String
+  eventType     String
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  donationId    String?
+  donation      Donation? @relation(fields: [donationId], references: [id])
+  nodeId        String
+  previousData  Json?
+  newData       Json?
+  correlationId String?
+  createdAt     DateTime  @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ---------- Notificações ----------
+
+enum NotificationType {
+  NEW_DONATION_NEARBY
+  RESERVATION_DEADLINE_SOON
+  DONATION_RESERVED
+  PICKUP_CONFIRMED
+  GENERIC
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}

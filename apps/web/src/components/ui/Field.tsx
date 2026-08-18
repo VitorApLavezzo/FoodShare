@@ -9,13 +9,15 @@ function FieldWrapper({
   error,
   hint,
   icon,
+  rightElement,
   children,
 }: {
   label?: string;
   htmlFor?: string;
   error?: string;
-  hint?: string;
+  hint?: ReactNode;
   icon?: ReactNode;
+  rightElement?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -32,11 +34,14 @@ function FieldWrapper({
           </span>
         )}
         {children}
+        {rightElement && (
+          <span className="absolute right-2 top-1/2 -translate-y-1/2">{rightElement}</span>
+        )}
       </div>
       {error && (
         <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>
       )}
-      {!error && hint && <p className="mt-1.5 text-xs text-neutral-500">{hint}</p>}
+      {!error && hint && <div className="mt-1.5 text-xs text-neutral-500">{hint}</div>}
     </div>
   );
 }
@@ -44,17 +49,18 @@ function FieldWrapper({
 interface InputFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
-  hint?: string;
+  hint?: ReactNode;
   icon?: ReactNode;
+  rightElement?: ReactNode;
 }
 
 export const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
-  ({ label, error, hint, icon, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} icon={icon}>
+  ({ label, error, hint, icon, rightElement, className = '', id, ...props }, ref) => (
+    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} icon={icon} rightElement={rightElement}>
       <input
         ref={ref}
         id={id}
-        className={`${baseInputClass} ${icon ? 'pl-10' : ''} ${error ? 'border-red-400 focus:border-red-500 focus:ring-red-500/15' : ''} ${className}`}
+        className={`${baseInputClass} ${icon ? 'pl-10' : ''} ${rightElement ? 'pr-10' : ''} ${error ? 'border-red-400 focus:border-red-500 focus:ring-red-500/15' : ''} ${className}`}
         aria-invalid={!!error}
         {...props}
       />

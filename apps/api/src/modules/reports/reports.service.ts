@@ -73,7 +73,6 @@ export class ReportsService {
 
     const completed = donations.filter((d) => COMPLETED_STATUSES.includes(d.status));
     const totalQuantityDistributed = completed.reduce((sum, d) => sum + d.quantity, 0);
-    const peoplePerUnit = this.config.get<number>('impact.peoplePerUnit')!;
 
     const byCity = new Map<string, { city: string; donations: number; quantity: number }>();
     for (const d of completed) {
@@ -90,7 +89,6 @@ export class ReportsService {
       totalExpired: donations.filter((d) => d.status === DonationStatus.EXPIRED).length,
       totalCancelled: donations.filter((d) => d.status === DonationStatus.CANCELLED).length,
       totalQuantityDistributed,
-      estimatedPeopleServed: Math.round(totalQuantityDistributed * peoplePerUnit),
       impactByRegion: [...byCity.values()].sort((a, b) => b.quantity - a.quantity),
     };
   }

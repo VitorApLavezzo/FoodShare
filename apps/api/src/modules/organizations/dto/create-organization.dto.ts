@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 import { OrganizationType } from '@prisma/client';
 import { AddressDto } from './address.dto';
+import { IsCnpj } from '../../../common/validators/is-cnpj.validator';
 
 const ORGANIZATION_TYPES = ['RESTAURANT', 'MARKET', 'BAKERY', 'OTHER'] as const;
 
@@ -23,10 +24,10 @@ export class CreateOrganizationDto {
   @IsString()
   tradeName!: string;
 
-  @ApiProperty({ required: false, description: 'CNPJ, opcional para ONGs informais.' })
-  @IsOptional()
+  @ApiProperty({ description: 'CNPJ.' })
   @IsString()
-  document?: string;
+  @IsCnpj({ message: 'CNPJ inválido.' })
+  document!: string;
 
   @ApiProperty({ enum: ORGANIZATION_TYPES, required: false, description: 'Apenas para doadores.' })
   @IsOptional()

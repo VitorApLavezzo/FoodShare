@@ -22,11 +22,6 @@ export function AdminMetrics() {
         <StatCard label="Doações concluídas" value={totals.donationsCompleted} />
         <StatCard label="Doações expiradas" value={totals.donationsExpired} />
         <StatCard label="Quantidade total doada" value={totals.totalQuantityDonated} />
-        <StatCard
-          label="Pessoas atendidas (estimativa)"
-          value={totals.estimatedPeopleServed}
-          hint="cálculo aproximado, não é um número real"
-        />
         <StatCard label="Nós online" value={`${totals.nodesOnline}/${totals.nodesTotal}`} />
         <StatCard label="Taxa de aproveitamento" value={`${utilizationRatePercent}%`} hint="concluídas / encerradas" />
       </div>

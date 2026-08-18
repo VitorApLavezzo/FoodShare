@@ -110,12 +110,6 @@ export function ReportsPage() {
               {impactQuery.data.totalQuantityDistributed}
             </p>
           </div>
-          <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-            <p className="text-xs uppercase text-neutral-500">Pessoas atendidas (estimativa)</p>
-            <p className="text-xl font-semibold text-neutral-900 dark:text-white">
-              {impactQuery.data.estimatedPeopleServed}
-            </p>
-          </div>
         </div>
       )}
 

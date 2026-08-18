@@ -7,8 +7,7 @@ export function NgoMetrics() {
 
   if (query.isLoading) return <p className="text-sm text-neutral-500">Carregando métricas…</p>;
   if (!query.data) return null;
-  const { availableNearby, activeReservations, completedPickups, totalQuantityReceived, estimatedPeopleServed } =
-    query.data;
+  const { availableNearby, activeReservations, completedPickups, totalQuantityReceived } = query.data;
 
   return (
     <div className="mb-8">
@@ -18,11 +17,6 @@ export function NgoMetrics() {
         <StatCard label="Reservas ativas" value={activeReservations} />
         <StatCard label="Retiradas concluídas" value={completedPickups} />
         <StatCard label="Quantidade recebida" value={totalQuantityReceived} />
-        <StatCard
-          label="Pessoas atendidas (estimativa)"
-          value={estimatedPeopleServed}
-          hint="cálculo aproximado, não é um número real"
-        />
       </div>
     </div>
   );

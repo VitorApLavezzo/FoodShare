@@ -28,11 +28,6 @@ export class DashboardService {
     private readonly config: ConfigService,
   ) {}
 
-  private estimatePeopleServed(totalQuantity: number): number {
-    const peoplePerUnit = this.config.get<number>('impact.peoplePerUnit')!;
-    return Math.round(totalQuantity * peoplePerUnit);
-  }
-
   async getDonorDashboard(user: AuthenticatedUser) {
     const link = await this.prisma.organizationUser.findFirst({
       where: { userId: user.id, organization: { kind: OrganizationKind.DONOR } },
@@ -55,7 +50,6 @@ export class DashboardService {
     return {
       totals,
       totalQuantityDonated,
-      estimatedPeopleServed: this.estimatePeopleServed(totalQuantityDonated),
       monthly: this.buildMonthlySeries(donations),
       recentHistory: donations.slice(0, 10).map((d) => ({
         id: d.id,
@@ -79,7 +73,6 @@ export class DashboardService {
         activeReservations: 0,
         completedPickups: 0,
         totalQuantityReceived: 0,
-        estimatedPeopleServed: 0,
         recentHistory: [],
       };
     }
@@ -104,7 +97,6 @@ export class DashboardService {
       activeReservations,
       completedPickups: completed.length,
       totalQuantityReceived,
-      estimatedPeopleServed: this.estimatePeopleServed(totalQuantityReceived),
       recentHistory: reservations.slice(0, 10).map((r) => ({
         id: r.id,
         foodName: r.donation.foodName,
@@ -166,7 +158,6 @@ export class DashboardService {
         donationsCompleted: completedDonations.length,
         donationsExpired: totals.EXPIRED,
         totalQuantityDonated,
-        estimatedPeopleServed: this.estimatePeopleServed(totalQuantityDonated),
         nodesOnline,
         nodesTotal: nodes.length,
       },
@@ -210,7 +201,6 @@ export class DashboardService {
     return {
       totals: this.countByStatus([]),
       totalQuantityDonated: 0,
-      estimatedPeopleServed: 0,
       monthly: this.buildMonthlySeries([]),
       recentHistory: [] as unknown[],
     };

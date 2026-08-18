@@ -19,7 +19,7 @@ export interface Organization {
   kind: 'DONOR' | 'NGO';
   legalName: string;
   tradeName: string;
-  document?: string | null;
+  document: string;
   type?: 'RESTAURANT' | 'MARKET' | 'BAKERY' | 'OTHER' | null;
   phone: string;
   email: string;
@@ -34,7 +34,7 @@ export interface Organization {
 export interface CreateOrganizationInput {
   legalName: string;
   tradeName: string;
-  document?: string;
+  document: string;
   type?: 'RESTAURANT' | 'MARKET' | 'BAKERY' | 'OTHER';
   phone: string;
   email: string;
@@ -50,21 +50,6 @@ const basePathFor = (kind: 'DONOR' | 'NGO') => (kind === 'DONOR' ? '/donors' : '
 export async function fetchMyOrganization(kind: 'DONOR' | 'NGO'): Promise<Organization | null> {
   const { data } = await api.get<Organization[]>(basePathFor(kind));
   return data[0] ?? null;
-}
-
-/** Admin-only: retorna todas as organizações do tipo (não só as do usuário atual). */
-export async function fetchAllOrganizations(kind: 'DONOR' | 'NGO'): Promise<Organization[]> {
-  const { data } = await api.get<Organization[]>(basePathFor(kind));
-  return data;
-}
-
-export async function updateApproval(
-  kind: 'DONOR' | 'NGO',
-  id: string,
-  status: 'APPROVED' | 'REJECTED' | 'BLOCKED',
-) {
-  const { data } = await api.patch<Organization>(`${basePathFor(kind)}/${id}/approval`, { status });
-  return data;
 }
 
 export async function createOrganization(kind: 'DONOR' | 'NGO', input: CreateOrganizationInput) {

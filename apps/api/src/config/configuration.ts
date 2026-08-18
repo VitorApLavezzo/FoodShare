@@ -15,10 +15,4 @@ export default () => ({
     city: process.env.NODE_CITY ?? 'Limeira',
     state: process.env.NODE_STATE ?? 'SP',
   },
-  impact: {
-    // Estimativa grosseira de pessoas atendidas por unidade de quantidade doada
-    // (kg, unidade ou litro tratados de forma equivalente). Configurável e SEMPRE
-    // exposta como estimativa na API/UI — nunca como número real (seção 48 da spec).
-    peoplePerUnit: parseFloat(process.env.PEOPLE_PER_UNIT ?? '2.5'),
-  },
 });

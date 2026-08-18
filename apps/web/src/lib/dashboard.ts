@@ -3,7 +3,6 @@ import { api } from './api';
 export interface DonorDashboard {
   totals: Record<string, number>;
   totalQuantityDonated: number;
-  estimatedPeopleServed: number;
   monthly: { month: string; count: number; quantity: number }[];
   recentHistory: { id: string; foodName: string; status: string; quantity: number; unit: string; updatedAt: string }[];
 }
@@ -13,7 +12,6 @@ export interface NgoDashboard {
   activeReservations: number;
   completedPickups: number;
   totalQuantityReceived: number;
-  estimatedPeopleServed: number;
   recentHistory: { id: string; foodName: string; status: string; quantity: number; unit: string; reservedAt: string }[];
 }
 
@@ -25,7 +23,6 @@ export interface AdminDashboard {
     donationsCompleted: number;
     donationsExpired: number;
     totalQuantityDonated: number;
-    estimatedPeopleServed: number;
     nodesOnline: number;
     nodesTotal: number;
   };

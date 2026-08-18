@@ -10,6 +10,7 @@ import { updateProfile, changePassword } from '../lib/account';
 import { fetchMyOrganization } from '../lib/organizations';
 import { AppHeader } from '../components/layout/AppHeader';
 import { InputField } from '../components/ui/Field';
+import { PasswordField } from '../components/ui/PasswordField';
 import { Button } from '../components/ui/Button';
 import { OrganizationForm } from '../components/OrganizationForm';
 
@@ -24,10 +25,15 @@ const profileSchema = z.object({
 });
 type ProfileValues = z.infer<typeof profileSchema>;
 
+const STRONG_PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/;
+
 const passwordSchema = z
   .object({
     currentPassword: z.string().min(1, 'Informe a senha atual.'),
-    newPassword: z.string().min(8, 'A nova senha deve ter ao menos 8 caracteres.'),
+    newPassword: z
+      .string()
+      .min(8, 'A nova senha deve ter ao menos 8 caracteres.')
+      .regex(STRONG_PASSWORD_REGEX, 'A nova senha deve ter 1 letra maiúscula, 1 número e 1 caractere especial.'),
     confirmPassword: z.string().min(1, 'Confirme a nova senha.'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -95,8 +101,11 @@ function PasswordSection() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<PasswordValues>({ resolver: zodResolver(passwordSchema) });
+
+  const newPassword = watch('newPassword') ?? '';
 
   const onSubmit = async (values: PasswordValues) => {
     setServerError(null);
@@ -112,23 +121,22 @@ function PasswordSection() {
   return (
     <SectionCard title="Senha" description="Recomendado trocar periodicamente.">
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
-        <InputField
-          type="password"
+        <PasswordField
           label="Senha atual"
           autoComplete="current-password"
           error={errors.currentPassword?.message}
           {...register('currentPassword')}
         />
         <div className="grid gap-4 sm:grid-cols-2">
-          <InputField
-            type="password"
+          <PasswordField
             label="Nova senha"
             autoComplete="new-password"
             error={errors.newPassword?.message}
+            showStrength
+            value={newPassword}
             {...register('newPassword')}
           />
-          <InputField
-            type="password"
+          <PasswordField
             label="Confirmar nova senha"
             autoComplete="new-password"
             error={errors.confirmPassword?.message}

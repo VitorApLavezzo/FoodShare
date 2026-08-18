@@ -9,7 +9,6 @@ import { ReservationsList } from '../components/ReservationsList';
 import { DonorMetrics } from '../components/dashboard/DonorMetrics';
 import { NgoMetrics } from '../components/dashboard/NgoMetrics';
 import { AdminMetrics } from '../components/dashboard/AdminMetrics';
-import { PendingApprovalsPanel } from '../components/dashboard/PendingApprovalsPanel';
 import { AuditLogList } from '../components/dashboard/AuditLogList';
 import { NodesSyncPanel } from '../components/dashboard/NodesSyncPanel';
 import { AppHeader } from '../components/layout/AppHeader';
@@ -50,11 +49,9 @@ export function DashboardPage() {
         <h1 className="font-display text-2xl font-medium text-neutral-900 dark:text-white">
           Olá, {user.name.split(' ')[0]} 👋
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">nó {user.nodeId}</p>
 
         {user.role === 'ADMIN' && (
           <div className="mt-8">
-            <PendingApprovalsPanel />
             <AdminMetrics />
             <NodesSyncPanel />
             <AuditLogList />
@@ -98,11 +95,6 @@ export function DashboardPage() {
                     </dd>
                   </div>
                 </dl>
-                {organizationQuery.data.approvalStatus === 'PENDING' && (
-                  <p className="mt-4 text-sm text-amber-700 dark:text-amber-400">
-                    Seu cadastro está em análise pela administração da plataforma.
-                  </p>
-                )}
               </div>
             )}
 
@@ -112,7 +104,7 @@ export function DashboardPage() {
                   {kind === 'NGO' ? 'Cadastre sua ONG' : 'Cadastre seu estabelecimento'}
                 </h2>
                 <p className="mt-1 mb-6 text-sm text-neutral-500">
-                  Esse cadastro passará por aprovação da administração antes de ficar visível na plataforma.
+                  Leva menos de um minuto — assim que salvar, já pode {kind === 'NGO' ? 'reservar doações' : 'publicar doações'}.
                 </p>
                 <OrganizationForm
                   kind={kind}

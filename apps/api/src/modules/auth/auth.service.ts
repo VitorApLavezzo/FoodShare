@@ -27,6 +27,11 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
+  async checkEmailAvailability(email: string) {
+    const existing = await this.usersService.findByEmail(email);
+    return { available: !existing };
+  }
+
   async register(dto: RegisterDto) {
     const existing = await this.usersService.findByEmail(dto.email);
     if (existing) {

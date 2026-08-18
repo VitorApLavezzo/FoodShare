@@ -9,14 +9,15 @@ import {
   type Organization,
 } from '../lib/organizations';
 import { getApiErrorMessage } from '../lib/api';
-import { fetchAddressByCep } from '../lib/cep';
+import { fetchAddressByCep, geocodeAddress } from '../lib/cep';
+import { isValidCnpj, formatCnpj } from '../lib/cnpj';
 import { InputField, SelectField, TextareaField } from './ui/Field';
 import { Button } from './ui/Button';
 
 const schema = z.object({
   legalName: z.string().min(2, 'Informe a razão social.'),
   tradeName: z.string().min(2, 'Informe o nome fantasia.'),
-  document: z.string().optional(),
+  document: z.string().min(1, 'Informe o CNPJ.').refine(isValidCnpj, 'CNPJ inválido.'),
   type: z.enum(['RESTAURANT', 'MARKET', 'BAKERY', 'OTHER']).optional(),
   phone: z.string().min(8, 'Informe um telefone válido.'),
   email: z.string().email('Informe um e-mail válido.'),
@@ -54,6 +55,7 @@ export function OrganizationForm({
     handleSubmit,
     setValue,
     setFocus,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -61,7 +63,7 @@ export function OrganizationForm({
       ? {
           legalName: organization.legalName,
           tradeName: organization.tradeName,
-          document: organization.document ?? undefined,
+          document: organization.document ? formatCnpj(organization.document) : undefined,
           type: organization.type ?? undefined,
           phone: organization.phone,
           email: organization.email,
@@ -96,9 +98,24 @@ export function OrganizationForm({
       setValue('neighborhood', address.neighborhood, { shouldValidate: true });
       setValue('city', address.city, { shouldValidate: true });
       setValue('state', address.state, { shouldValidate: true });
+      if (address.latitude !== undefined && address.longitude !== undefined) {
+        setValue('latitude', address.latitude, { shouldValidate: true });
+        setValue('longitude', address.longitude, { shouldValidate: true });
+      }
       setFocus('number');
     } catch {
       setCepStatus('not-found');
+    }
+  };
+
+  const handleNumberBlur = async (event: FocusEvent<HTMLInputElement>) => {
+    const number = event.target.value.trim();
+    if (!number) return;
+    const { street, city, state } = getValues();
+    const coordinates = await geocodeAddress(street, number, city, state);
+    if (coordinates) {
+      setValue('latitude', coordinates.latitude, { shouldValidate: true });
+      setValue('longitude', coordinates.longitude, { shouldValidate: true });
     }
   };
 
@@ -130,7 +147,22 @@ export function OrganizationForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <InputField label="CNPJ (opcional)" {...register('document')} />
+        {(() => {
+          const { onChange, ...documentField } = register('document');
+          return (
+            <InputField
+              label="CNPJ"
+              placeholder="00.000.000/0000-00"
+              maxLength={18}
+              error={errors.document?.message}
+              onChange={(e) => {
+                e.target.value = formatCnpj(e.target.value);
+                onChange(e);
+              }}
+              {...documentField}
+            />
+          );
+        })()}
         {kind === 'DONOR' ? (
           <SelectField label="Tipo de estabelecimento" {...register('type')}>
             <option value="RESTAURANT">Restaurante</option>
@@ -202,7 +234,19 @@ export function OrganizationForm({
           <div className="sm:col-span-2">
             <InputField label="Rua" error={errors.street?.message} {...register('street')} />
           </div>
-          <InputField label="Número" {...register('number')} />
+          {(() => {
+            const { onBlur, ...numberField } = register('number');
+            return (
+              <InputField
+                label="Número"
+                onBlur={(e) => {
+                  onBlur(e);
+                  handleNumberBlur(e);
+                }}
+                {...numberField}
+              />
+            );
+          })()}
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <InputField label="Bairro" error={errors.neighborhood?.message} {...register('neighborhood')} />

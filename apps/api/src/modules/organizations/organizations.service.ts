@@ -38,6 +38,8 @@ export class OrganizationsService {
           kind,
           nodeId: user.nodeId,
           addressId: createdAddress.id,
+          // Aprovação manual removida: qualquer cadastro completo já entra liberado.
+          approvalStatus: ApprovalStatus.APPROVED,
         },
       });
       await tx.organizationUser.create({
@@ -54,6 +56,7 @@ export class OrganizationsService {
       nodeId: user.nodeId,
       newData: organization,
     });
+    await this.syncService.publishEvent('ORGANIZATION_APPROVED', organization.id, organization);
 
     return organization;
   }

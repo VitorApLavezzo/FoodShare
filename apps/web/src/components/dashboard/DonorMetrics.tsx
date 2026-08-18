@@ -8,7 +8,7 @@ export function DonorMetrics() {
 
   if (query.isLoading) return <p className="text-sm text-neutral-500">Carregando métricas…</p>;
   if (!query.data) return null;
-  const { totals, totalQuantityDonated, estimatedPeopleServed, monthly } = query.data;
+  const { totals, totalQuantityDonated, monthly } = query.data;
 
   return (
     <div className="mb-8">
@@ -19,11 +19,6 @@ export function DonorMetrics() {
         <StatCard label="Retiradas" value={(totals.PICKED_UP ?? 0) + (totals.DISTRIBUTED ?? 0)} />
         <StatCard label="Expiradas" value={totals.EXPIRED} />
         <StatCard label="Quantidade doada" value={totalQuantityDonated} hint="soma das doações retiradas" />
-        <StatCard
-          label="Pessoas atendidas (estimativa)"
-          value={estimatedPeopleServed}
-          hint="cálculo aproximado, não é um número real"
-        />
       </div>
 
       <div className="mt-4 h-56 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">

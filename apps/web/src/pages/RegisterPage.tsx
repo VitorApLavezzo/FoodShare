@@ -1,18 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage } from '../lib/api';
+import { checkEmailAvailability } from '../lib/auth';
 import { AuthLayout } from '../components/layout/AuthLayout';
 import { InputField } from '../components/ui/Field';
+import { PasswordField } from '../components/ui/PasswordField';
 import { Button } from '../components/ui/Button';
+
+const STRONG_PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/;
 
 const schema = z.object({
   name: z.string().min(2, 'Informe seu nome ou razão social.'),
   email: z.string().email('Informe um e-mail válido.'),
-  password: z.string().min(8, 'A senha deve ter ao menos 8 caracteres.'),
+  password: z
+    .string()
+    .min(8, 'A senha deve ter ao menos 8 caracteres.')
+    .regex(STRONG_PASSWORD_REGEX, 'A senha deve ter 1 letra maiúscula, 1 número e 1 caractere especial.'),
   role: z.enum(['DONOR', 'NGO']),
 });
 
@@ -27,17 +34,47 @@ export function RegisterPage() {
   const { register: registerUser } = useAuth();
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
 
   const {
     register,
     handleSubmit,
     watch,
+    setError,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { role: 'DONOR' } });
 
   const role = watch('role');
+  const password = watch('password') ?? '';
+  const email = watch('email');
+
+  useEffect(() => {
+    const isValidFormat = z.string().email().safeParse(email).success;
+    if (!isValidFormat) {
+      setEmailStatus('idle');
+      return;
+    }
+    setEmailStatus('checking');
+    const timeout = setTimeout(async () => {
+      try {
+        const available = await checkEmailAvailability(email);
+        setEmailStatus(available ? 'available' : 'taken');
+        if (!available) {
+          setError('email', { message: 'Já existe uma conta com este e-mail.' });
+        } else {
+          clearErrors('email');
+        }
+      } catch {
+        setEmailStatus('error');
+      }
+    }, 500);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
 
   const onSubmit = async (values: FormValues) => {
+    if (emailStatus === 'taken') return;
     setServerError(null);
     try {
       await registerUser(values);
@@ -46,6 +83,13 @@ export function RegisterPage() {
       setServerError(getApiErrorMessage(error, 'Não foi possível criar a conta.'));
     }
   };
+
+  const emailHint =
+    emailStatus === 'checking'
+      ? 'Verificando disponibilidade…'
+      : emailStatus === 'available'
+        ? '✓ E-mail disponível.'
+        : undefined;
 
   return (
     <AuthLayout
@@ -99,16 +143,18 @@ export function RegisterPage() {
           autoComplete="email"
           placeholder="voce@exemplo.com"
           error={errors.email?.message}
+          hint={emailHint}
           {...register('email')}
         />
 
-        <InputField
+        <PasswordField
           id="password"
-          type="password"
           label="Senha"
           autoComplete="new-password"
           placeholder="Mínimo 8 caracteres"
           error={errors.password?.message}
+          showStrength
+          value={password}
           {...register('password')}
         />
 

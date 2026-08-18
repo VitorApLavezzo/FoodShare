@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage } from '../lib/api';
 import { AuthLayout } from '../components/layout/AuthLayout';
 import { InputField } from '../components/ui/Field';
+import { PasswordField } from '../components/ui/PasswordField';
 import { Button } from '../components/ui/Button';
 
 const schema = z.object({
@@ -66,9 +67,8 @@ export function LoginPage() {
           {...register('email')}
         />
 
-        <InputField
+        <PasswordField
           id="password"
-          type="password"
           label="Senha"
           autoComplete="current-password"
           placeholder="••••••••"

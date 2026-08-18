@@ -22,7 +22,6 @@ export interface ImpactReport {
   totalExpired: number;
   totalCancelled: number;
   totalQuantityDistributed: number;
-  estimatedPeopleServed: number;
   impactByRegion: { city: string; donations: number; quantity: number }[];
 }
 

@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { createDonation, type CreateDonationInput, type Donation } from '../lib/donations';
+import { createDonation, type CreateDonationListInput, type DonationList } from '../lib/donations';
 import { getApiErrorMessage } from '../lib/api';
 
-const schema = z.object({
+const itemSchema = z.object({
   foodName: z.string().min(2, 'Informe o nome do alimento.'),
   category: z.enum([
     'PREPARED_MEALS',
@@ -20,6 +20,11 @@ const schema = z.object({
   description: z.string().optional(),
   quantity: z.coerce.number().positive('A quantidade deve ser maior que zero.'),
   unit: z.string().min(1, 'Informe a unidade (kg, un, L...).'),
+});
+
+const schema = z.object({
+  items: z.array(itemSchema).min(1, 'Adicione pelo menos um item.'),
+  allowPartial: z.boolean(),
   availableAt: z.string().min(1, 'Informe a data/hora de disponibilidade.'),
   pickupDeadline: z.string().min(1, 'Informe o prazo limite de retirada.'),
   expiresAt: z.string().min(1, 'Informe a validade.'),
@@ -32,25 +37,38 @@ const inputClass =
   'w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-neutral-700 dark:bg-neutral-900';
 const labelClass = 'mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300';
 
-export function DonationForm({ onCreated }: { onCreated: (donation: Donation) => void }) {
+const emptyItem = {
+  foodName: '',
+  category: 'PREPARED_MEALS' as const,
+  description: '',
+  quantity: 1,
+  unit: '',
+};
+
+export function DonationForm({ onCreated }: { onCreated: (donationList: DonationList) => void }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { category: 'PREPARED_MEALS' } });
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { items: [emptyItem], allowPartial: true },
+  });
+  const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
-    const input: CreateDonationInput = {
+    const input: CreateDonationListInput = {
       ...values,
       availableAt: new Date(values.availableAt).toISOString(),
       pickupDeadline: new Date(values.pickupDeadline).toISOString(),
       expiresAt: new Date(values.expiresAt).toISOString(),
     };
     try {
-      const donation = await createDonation(input);
-      onCreated(donation);
+      const donationList = await createDonation(input);
+      onCreated(donationList);
     } catch (error) {
       setServerError(getApiErrorMessage(error, 'Não foi possível publicar a doação.'));
     }
@@ -58,44 +76,91 @@ export function DonationForm({ onCreated }: { onCreated: (donation: Donation) =>
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Alimento</label>
-          <input className={inputClass} {...register('foodName')} />
-          {errors.foodName && <p className="mt-1 text-sm text-red-600">{errors.foodName.message}</p>}
-        </div>
-        <div>
-          <label className={labelClass}>Categoria</label>
-          <select className={inputClass} {...register('category')}>
-            <option value="PREPARED_MEALS">Alimentos preparados</option>
-            <option value="FRUITS">Frutas</option>
-            <option value="VEGETABLES">Verduras</option>
-            <option value="LEGUMES">Legumes</option>
-            <option value="PACKAGED_GOODS">Produtos industrializados</option>
-            <option value="BAKERY">Padaria</option>
-            <option value="BEVERAGES">Bebidas</option>
-            <option value="OTHER">Outros</option>
-          </select>
-        </div>
+      <div className="flex flex-col gap-4">
+        {fields.map((field, index) => (
+          <div key={field.id} className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Item {index + 1}</h4>
+              {fields.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => remove(index)}
+                  className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                >
+                  Remover
+                </button>
+              )}
+            </div>
+
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Alimento</label>
+                <input className={inputClass} {...register(`items.${index}.foodName`)} />
+                {errors.items?.[index]?.foodName && (
+                  <p className="mt-1 text-sm text-red-600">{errors.items[index]?.foodName?.message}</p>
+                )}
+              </div>
+              <div>
+                <label className={labelClass}>Categoria</label>
+                <select className={inputClass} {...register(`items.${index}.category`)}>
+                  <option value="PREPARED_MEALS">Alimentos preparados</option>
+                  <option value="FRUITS">Frutas</option>
+                  <option value="VEGETABLES">Verduras</option>
+                  <option value="LEGUMES">Legumes</option>
+                  <option value="PACKAGED_GOODS">Produtos industrializados</option>
+                  <option value="BAKERY">Padaria</option>
+                  <option value="BEVERAGES">Bebidas</option>
+                  <option value="OTHER">Outros</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Quantidade</label>
+                <input
+                  type="number"
+                  step="any"
+                  min={0}
+                  className={inputClass}
+                  {...register(`items.${index}.quantity`)}
+                />
+                {errors.items?.[index]?.quantity && (
+                  <p className="mt-1 text-sm text-red-600">{errors.items[index]?.quantity?.message}</p>
+                )}
+              </div>
+              <div>
+                <label className={labelClass}>Unidade (kg, un, L…)</label>
+                <input className={inputClass} {...register(`items.${index}.unit`)} />
+                {errors.items?.[index]?.unit && (
+                  <p className="mt-1 text-sm text-red-600">{errors.items[index]?.unit?.message}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className={labelClass}>Descrição (opcional)</label>
+              <textarea className={inputClass} rows={2} {...register(`items.${index}.description`)} />
+            </div>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => append(emptyItem)}
+          className="self-start rounded-lg border border-dashed border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-600 hover:border-brand-500 hover:text-brand-600 dark:border-neutral-700 dark:text-neutral-400"
+        >
+          + Adicionar item
+        </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Quantidade</label>
-          <input type="number" step="any" min={0} className={inputClass} {...register('quantity')} />
-          {errors.quantity && <p className="mt-1 text-sm text-red-600">{errors.quantity.message}</p>}
-        </div>
-        <div>
-          <label className={labelClass}>Unidade (kg, un, L…)</label>
-          <input className={inputClass} {...register('unit')} />
-          {errors.unit && <p className="mt-1 text-sm text-red-600">{errors.unit.message}</p>}
-        </div>
-      </div>
-
-      <div>
-        <label className={labelClass}>Descrição (opcional)</label>
-        <textarea className={inputClass} rows={2} {...register('description')} />
-      </div>
+      <label className="flex items-start gap-2 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+        <input type="checkbox" className="mt-0.5" {...register('allowPartial')} />
+        <span>
+          Permitir que a ONG reserve parcialmente (escolher só alguns itens, ou parte da quantidade de cada um). Se
+          desmarcado, a reserva só pode ser feita para a lista inteira, de uma vez.
+        </span>
+      </label>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div>

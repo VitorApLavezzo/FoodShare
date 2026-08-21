@@ -1,20 +1,34 @@
 import { api } from './api';
-import type { Donation } from './donations';
+import type { DonationList } from './donations';
 
 export type ReservationStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED';
 
+export interface ReservationItem {
+  id: string;
+  donationItemId: string;
+  quantity: number;
+  donationItem?: { foodName: string; unit: string };
+}
+
 export interface Reservation {
   id: string;
-  donationId: string;
+  donationListId: string;
   status: ReservationStatus;
   reservedAt: string;
   cancelledAt?: string | null;
   pickupCode: string;
-  donation: Donation;
+  donationList: DonationList;
+  items: ReservationItem[];
+  conversationId?: string;
 }
 
-export async function reserveDonation(donationId: string) {
-  const { data } = await api.post<Reservation>(`/donations/${donationId}/reserve`);
+export interface ReserveItemInput {
+  donationItemId: string;
+  quantity?: number;
+}
+
+export async function reserveDonationItems(donationListId: string, items: ReserveItemInput[]) {
+  const { data } = await api.post<Reservation>('/reservations', { donationListId, items });
   return data;
 }
 
@@ -28,7 +42,7 @@ export async function fetchReservations() {
   return data;
 }
 
-export async function confirmPickup(donationId: string, pickupCode: string) {
-  const { data } = await api.post(`/donations/${donationId}/confirm-pickup`, { pickupCode });
+export async function confirmPickup(pickupCode: string) {
+  const { data } = await api.post('/reservations/confirm-pickup', { pickupCode });
   return data;
 }

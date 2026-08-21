@@ -1,22 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { ApprovalStatus, DonationCategory, DonationStatus, OrganizationKind } from '@prisma/client';
+import { ApprovalStatus, DonationCategory, DonationListStatus, OrganizationKind } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { haversineKm } from '../../common/geo';
 
-const EARTH_RADIUS_KM = 6371;
 // Teto de segurança para o cálculo de distância em memória (ver decisão de
 // arquitetura da Fase 8: sem PostGIS, sem SQL geoespacial — aceitável no
 // volume de dados atual do projeto).
 const MAX_CANDIDATES = 500;
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 interface DistanceParams {
   lat?: number;
@@ -51,34 +41,43 @@ export class MapService {
   async findAvailableDonations(
     params: DistanceParams & { category?: DonationCategory; minQuantity?: number },
   ) {
-    const donations = await this.prisma.donation.findMany({
+    const donationLists = await this.prisma.donationList.findMany({
       where: {
-        status: DonationStatus.AVAILABLE,
+        status: DonationListStatus.OPEN,
         expiresAt: { gt: new Date() },
         deletedAt: null,
-        category: params.category,
-        quantity: params.minQuantity ? { gte: params.minQuantity } : undefined,
         donorOrganization: { approvalStatus: ApprovalStatus.APPROVED },
+        items: {
+          some: {
+            status: 'AVAILABLE',
+            category: params.category,
+            remainingQuantity: params.minQuantity ? { gte: params.minQuantity } : undefined,
+          },
+        },
       },
-      include: { donorOrganization: { include: { address: true } } },
+      include: { donorOrganization: { include: { address: true } }, items: true },
       take: MAX_CANDIDATES,
       orderBy: { expiresAt: 'asc' },
     });
 
     return this.withDistance(
-      donations.map((d) => ({
-        id: d.id,
-        foodName: d.foodName,
-        category: d.category,
-        quantity: d.quantity,
-        unit: d.unit,
-        pickupDeadline: d.pickupDeadline,
-        expiresAt: d.expiresAt,
-        donorName: d.donorOrganization.tradeName,
-        latitude: d.donorOrganization.address.latitude,
-        longitude: d.donorOrganization.address.longitude,
-        city: d.donorOrganization.address.city,
-        state: d.donorOrganization.address.state,
+      donationLists.map((list) => ({
+        id: list.id,
+        allowPartial: list.allowPartial,
+        items: list.items.map((item) => ({
+          id: item.id,
+          foodName: item.foodName,
+          category: item.category,
+          remainingQuantity: item.remainingQuantity,
+          unit: item.unit,
+        })),
+        pickupDeadline: list.pickupDeadline,
+        expiresAt: list.expiresAt,
+        donorName: list.donorOrganization.tradeName,
+        latitude: list.donorOrganization.address.latitude,
+        longitude: list.donorOrganization.address.longitude,
+        city: list.donorOrganization.address.city,
+        state: list.donorOrganization.address.state,
       })),
       params,
     );

@@ -8,7 +8,7 @@ export interface RecordAuditLogInput {
   eventType: string;
   userId?: string;
   nodeId: string;
-  donationId?: string;
+  donationListId?: string;
   previousData?: unknown;
   newData?: unknown;
   correlationId?: string;
@@ -33,7 +33,7 @@ export class AuditLogService {
           eventType: input.eventType,
           userId: input.userId,
           nodeId: input.nodeId,
-          donationId: input.donationId,
+          donationListId: input.donationListId,
           previousData: (input.previousData ?? undefined) as Prisma.InputJsonValue,
           newData: (input.newData ?? undefined) as Prisma.InputJsonValue,
           correlationId: input.correlationId,

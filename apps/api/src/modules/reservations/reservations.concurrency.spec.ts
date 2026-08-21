@@ -5,25 +5,26 @@ import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 /**
  * Teste de integração contra o Postgres real (não mockado) que prova a exigência
- * da seção 13/37 da especificação: duas ONGs tentando reservar a MESMA doação ao
- * mesmo tempo -> exatamente uma reserva vence, a outra recebe um conflito claro.
+ * de concorrência: duas ONGs tentando reservar quantidades do MESMO item ao
+ * mesmo tempo nunca conseguem, juntas, levar mais do que existe.
  *
  * Requer DATABASE_URL apontando para um Postgres acessível (o mesmo usado em
  * desenvolvimento). Roda com `npm test` dentro de apps/api.
  */
-describe('ReservationsService - concorrência de reserva', () => {
+describe('ReservationsService - concorrência de reserva por item', () => {
   const prisma = new PrismaClient();
   const noopAuditLog = { record: jest.fn().mockResolvedValue(undefined) };
   const noopSync = { publishEvent: jest.fn().mockResolvedValue(undefined) };
-  const service = new ReservationsService(prisma as never, noopAuditLog as never, noopSync as never);
+  const noopChat = { getOrCreateConversation: jest.fn().mockResolvedValue({ id: 'conv-noop' }) };
+  const service = new ReservationsService(prisma as never, noopAuditLog as never, noopSync as never, noopChat as never);
   const runId = Date.now();
 
   let ngoAId: string;
   let ngoBId: string;
-  let donationId: string;
   const createdUserIds: string[] = [];
   const createdOrgIds: string[] = [];
   const createdAddressIds: string[] = [];
+  const createdListIds: string[] = [];
 
   async function createNgoUser(label: string): Promise<{ userId: string; org: AuthenticatedUser }> {
     const passwordHash = await bcrypt.hash('senha1234', 4);
@@ -76,11 +77,11 @@ describe('ReservationsService - concorrência de reserva', () => {
     };
   }
 
-  beforeAll(async () => {
+  async function createDonationList(quantity: number, allowPartial: boolean) {
     const passwordHash = await bcrypt.hash('senha1234', 4);
     const donorUser = await prisma.user.create({
       data: {
-        email: `donor-${runId}@teste.com`,
+        email: `donor-${runId}-${Math.random()}@teste.com`,
         name: 'Doador Teste',
         role: UserRole.DONOR,
         passwordHash,
@@ -105,10 +106,10 @@ describe('ReservationsService - concorrência de reserva', () => {
     const donorOrg = await prisma.organization.create({
       data: {
         kind: OrganizationKind.DONOR,
-        legalName: 'Restaurante Concorrência LTDA',
+        legalName: `Restaurante Concorrência ${Math.random()} LTDA`,
         tradeName: 'Restaurante Concorrência',
         phone: '19999999999',
-        email: `donor-org-${runId}@teste.com`,
+        email: `donor-org-${runId}-${Math.random()}@teste.com`,
         responsibleName: 'Responsável Teste',
         approvalStatus: ApprovalStatus.APPROVED,
         nodeId: 'LIMEIRA',
@@ -117,21 +118,33 @@ describe('ReservationsService - concorrência de reserva', () => {
     });
     createdOrgIds.push(donorOrg.id);
 
-    const donation = await prisma.donation.create({
+    const list = await prisma.donationList.create({
       data: {
         donorOrganizationId: donorOrg.id,
         nodeId: 'LIMEIRA',
-        foodName: 'Marmitas prontas',
-        category: DonationCategory.PREPARED_MEALS,
-        quantity: 20,
-        unit: 'un',
+        allowPartial,
         availableAt: new Date(),
         pickupDeadline: new Date(Date.now() + 2 * 60 * 60 * 1000),
         expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+        items: {
+          create: [
+            {
+              foodName: 'Marmitas prontas',
+              category: DonationCategory.PREPARED_MEALS,
+              quantity,
+              remainingQuantity: quantity,
+              unit: 'un',
+            },
+          ],
+        },
       },
+      include: { items: true },
     });
-    donationId = donation.id;
+    createdListIds.push(list.id);
+    return list;
+  }
 
+  beforeAll(async () => {
     const ngoA = await createNgoUser('A');
     const ngoB = await createNgoUser('B');
     ngoAId = ngoA.userId;
@@ -139,8 +152,11 @@ describe('ReservationsService - concorrência de reserva', () => {
   }, 30_000);
 
   afterAll(async () => {
-    await prisma.reservation.deleteMany({ where: { donationId } });
-    await prisma.donation.deleteMany({ where: { id: donationId } });
+    await prisma.pickup.deleteMany({ where: { reservation: { donationListId: { in: createdListIds } } } });
+    await prisma.reservationItem.deleteMany({ where: { reservation: { donationListId: { in: createdListIds } } } });
+    await prisma.reservation.deleteMany({ where: { donationListId: { in: createdListIds } } });
+    await prisma.donationItem.deleteMany({ where: { donationListId: { in: createdListIds } } });
+    await prisma.donationList.deleteMany({ where: { id: { in: createdListIds } } });
     await prisma.organizationUser.deleteMany({ where: { userId: { in: createdUserIds } } });
     await prisma.organization.deleteMany({ where: { id: { in: createdOrgIds } } });
     await prisma.address.deleteMany({ where: { id: { in: createdAddressIds } } });
@@ -148,34 +164,51 @@ describe('ReservationsService - concorrência de reserva', () => {
     await prisma.$disconnect();
   });
 
-  it('permite que apenas uma de duas reservas simultâneas para a mesma doação vença', async () => {
+  it('quando duas reservas concorrentes juntas excedem o disponível, só uma vence', async () => {
+    const list = await createDonationList(10, true);
+    const itemId = list.items[0].id;
     const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
     const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
 
     const results = await Promise.allSettled([
-      service.reserve(userA, donationId),
-      service.reserve(userB, donationId),
+      service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 7 }] }),
+      service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 7 }] }),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     const rejected = results.filter((r) => r.status === 'rejected');
-
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
 
-    const donation = await prisma.donation.findUniqueOrThrow({ where: { id: donationId } });
-    expect(donation.status).toBe('RESERVED');
-
-    const reservations = await prisma.reservation.findMany({ where: { donationId } });
-    expect(reservations).toHaveLength(1);
+    const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.remainingQuantity).toBe(3);
   }, 30_000);
 
-  it('rejeita reservar novamente a mesma doação já reservada, com o motivo correto', async () => {
-    // A doação já está RESERVED após o teste anterior; não importa qual ONG venceu,
-    // uma nova tentativa (mesmo pela ONG vencedora) deve ser rejeitada.
+  it('quando duas reservas concorrentes cabem no disponível, ambas vencem', async () => {
+    const list = await createDonationList(10, true);
+    const itemId = list.items[0].id;
     const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
-    await expect(service.reserve(userA, donationId)).rejects.toMatchObject({
-      response: { code: 'DONATION_ALREADY_RESERVED' },
-    });
+    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    const results = await Promise.allSettled([
+      service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 6 }] }),
+      service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 4 }] }),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
+
+    const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.remainingQuantity).toBe(0);
+    expect(item.status).toBe('FULLY_RESERVED');
+  }, 30_000);
+
+  it('rejeita pedido parcial quando a lista não permite aceite parcial', async () => {
+    const list = await createDonationList(10, false);
+    const itemId = list.items[0].id;
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    await expect(
+      service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 4 }] }),
+    ).rejects.toMatchObject({ response: { code: 'PARTIAL_NOT_ALLOWED' } });
   });
 });

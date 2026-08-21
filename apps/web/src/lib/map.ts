@@ -12,12 +12,18 @@ export interface MapOrganization {
   distanceKm: number | null;
 }
 
-export interface MapDonation {
+export interface MapDonationItem {
   id: string;
   foodName: string;
   category: DonationCategory;
-  quantity: number;
+  remainingQuantity: number;
   unit: string;
+}
+
+export interface MapDonation {
+  id: string;
+  allowPartial: boolean;
+  items: MapDonationItem[];
   pickupDeadline: string;
   expiresAt: string;
   donorName: string;

@@ -5,18 +5,26 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ApprovalStatus, DonationStatus, OrganizationKind, Prisma, ReservationStatus } from '@prisma/client';
+import {
+  ApprovalStatus,
+  DonationItemStatus,
+  DonationListStatus,
+  OrganizationKind,
+  Prisma,
+  ReservationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { generatePickupCode } from '../../common/pickup-code';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
+import { ChatService } from '../chat/chat.service';
+import { CreateReservationDto } from './dto/create-reservation.dto';
 
-interface LockedDonationRow {
+interface LockedItemRow {
   id: string;
-  status: DonationStatus;
-  expiresAt: Date;
-  donorOrganizationId: string;
+  remainingQuantity: number;
+  status: DonationItemStatus;
 }
 
 @Injectable()
@@ -25,47 +33,108 @@ export class ReservationsService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly syncService: SyncService,
+    private readonly chatService: ChatService,
   ) {}
 
   /**
-   * Trava a linha da doação (SELECT ... FOR UPDATE) dentro de uma transação antes de
-   * decidir se a reserva pode ser criada. Duas requisições concorrentes para a mesma
-   * doação serializam nesse lock: a segunda só lê o status já como RESERVED depois que
-   * a primeira commita, e falha com 409 — nunca as duas criam reserva.
+   * Trava todas as linhas de DonationItem pedidas (SELECT ... FOR UPDATE, em
+   * ordem fixa por id para evitar deadlock entre pedidos concorrentes com
+   * conjuntos de itens sobrepostos) antes de decidir se a reserva pode ser
+   * criada. Cada item só é concedido se a quantidade pedida couber no que
+   * restou após o lock - por isso duas ONGs pedindo mais do que existe nunca
+   * conseguem, juntas, reservar mais do que o total disponível.
    */
-  async reserve(user: AuthenticatedUser, donationId: string) {
+  async reserve(user: AuthenticatedUser, dto: CreateReservationDto) {
     const ngoOrganization = await this.getApprovedNgoOrganization(user.id);
 
+    const donationList = await this.prisma.donationList.findFirst({
+      where: { id: dto.donationListId, deletedAt: null },
+      include: { items: true },
+    });
+    if (!donationList) {
+      throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
+    }
+    if (donationList.expiresAt <= new Date()) {
+      throw new ConflictException({ code: 'DONATION_EXPIRED', message: 'Esta doação já expirou.' });
+    }
+    if (donationList.status !== DonationListStatus.OPEN) {
+      throw new ConflictException({
+        code: 'DONATION_NOT_AVAILABLE',
+        message: 'Esta lista de doação não está mais disponível.',
+      });
+    }
+
+    const itemIds = dto.items.map((i) => i.donationItemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new BadRequestException({ code: 'DUPLICATE_ITEM', message: 'Item duplicado no pedido.' });
+    }
+    const knownIds = new Set(donationList.items.map((i) => i.id));
+    if (!itemIds.every((id) => knownIds.has(id))) {
+      throw new NotFoundException({ code: 'ITEM_NOT_FOUND', message: 'Item não pertence a esta doação.' });
+    }
+
+    if (!donationList.allowPartial) {
+      this.assertCoversAllAvailableItems(donationList.items, dto.items);
+    }
+
     const reservation = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<LockedDonationRow[]>(
-        Prisma.sql`SELECT id, status, "expiresAt", "donorOrganizationId" FROM donations WHERE id = ${donationId} AND "deletedAt" IS NULL FOR UPDATE`,
+      const rows = await tx.$queryRaw<LockedItemRow[]>(
+        Prisma.sql`SELECT id, "remainingQuantity", status FROM donation_items WHERE id = ANY(${itemIds}) AND status != 'CANCELLED' ORDER BY id FOR UPDATE`,
       );
-      const donation = rows[0];
-      if (!donation) {
-        throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
-      }
-      if (donation.expiresAt <= new Date()) {
-        throw new ConflictException({ code: 'DONATION_EXPIRED', message: 'Esta doação já expirou.' });
-      }
-      if (donation.status !== DonationStatus.AVAILABLE) {
+      if (rows.length !== itemIds.length) {
         throw new ConflictException({
-          code: 'DONATION_ALREADY_RESERVED',
-          message: 'Esta doação já foi reservada.',
+          code: 'ITEM_NOT_AVAILABLE',
+          message: 'Um ou mais itens não estão mais disponíveis.',
         });
       }
 
+      const reservationItemsData = dto.items.map((requested) => {
+        const row = rows.find((r) => r.id === requested.donationItemId)!;
+        const wantedQty = requested.quantity ?? row.remainingQuantity;
+        if (wantedQty > row.remainingQuantity) {
+          throw new ConflictException({
+            code: 'INSUFFICIENT_QUANTITY',
+            message: `Quantidade indisponível para o item ${row.id}.`,
+            itemId: row.id,
+            available: row.remainingQuantity,
+          });
+        }
+        return { donationItemId: row.id, quantity: wantedQty };
+      });
+
       const reservation = await tx.reservation.create({
         data: {
-          donationId,
+          donationListId: donationList.id,
           ngoOrganizationId: ngoOrganization.id,
           pickupCode: generatePickupCode(),
           nodeId: user.nodeId,
+          items: { create: reservationItemsData },
         },
+        include: { items: true },
       });
 
-      await tx.donation.update({
-        where: { id: donationId },
-        data: { status: DonationStatus.RESERVED, version: { increment: 1 } },
+      for (const requested of reservationItemsData) {
+        const row = rows.find((r) => r.id === requested.donationItemId)!;
+        const newRemaining = row.remainingQuantity - requested.quantity;
+        await tx.donationItem.update({
+          where: { id: requested.donationItemId },
+          data: {
+            remainingQuantity: newRemaining,
+            status: newRemaining <= 0 ? DonationItemStatus.FULLY_RESERVED : DonationItemStatus.AVAILABLE,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      const stillAvailable = await tx.donationItem.count({
+        where: { donationListId: donationList.id, status: DonationItemStatus.AVAILABLE },
+      });
+      await tx.donationList.update({
+        where: { id: donationList.id },
+        data: {
+          status: stillAvailable === 0 ? DonationListStatus.FULLY_RESERVED : DonationListStatus.OPEN,
+          version: { increment: 1 },
+        },
       });
 
       return reservation;
@@ -74,20 +143,25 @@ export class ReservationsService {
     await this.auditLogService.record({
       entity: 'Reservation',
       entityId: reservation.id,
-      donationId,
+      donationListId: donationList.id,
       eventType: 'DONATION_RESERVED',
       userId: user.id,
       nodeId: user.nodeId,
       newData: reservation,
     });
-    await this.syncService.publishEvent('DONATION_RESERVED', donationId, reservation);
+    await this.syncService.publishEvent('DONATION_RESERVED', donationList.id, reservation);
 
-    return reservation;
+    const conversation = await this.chatService.getOrCreateConversation(reservation.id, donationList.id);
+
+    return { ...reservation, conversationId: conversation.id };
   }
 
   async cancel(user: AuthenticatedUser, reservationId: string) {
     const updated = await this.prisma.$transaction(async (tx) => {
-      const reservation = await tx.reservation.findUnique({ where: { id: reservationId } });
+      const reservation = await tx.reservation.findUnique({
+        where: { id: reservationId },
+        include: { items: true },
+      });
       if (!reservation) {
         throw new NotFoundException({ code: 'RESERVATION_NOT_FOUND', message: 'Reserva não encontrada.' });
       }
@@ -111,9 +185,9 @@ export class ReservationsService {
         });
       }
 
-      // Trava a doação para evitar corrida com uma confirmação de retirada em andamento.
+      const itemIds = reservation.items.map((i) => i.donationItemId);
       await tx.$queryRaw(
-        Prisma.sql`SELECT id FROM donations WHERE id = ${reservation.donationId} FOR UPDATE`,
+        Prisma.sql`SELECT id FROM donation_items WHERE id = ANY(${itemIds}) ORDER BY id FOR UPDATE`,
       );
 
       const updated = await tx.reservation.update({
@@ -121,9 +195,20 @@ export class ReservationsService {
         data: { status: ReservationStatus.CANCELLED, cancelledAt: new Date() },
       });
 
-      await tx.donation.update({
-        where: { id: reservation.donationId },
-        data: { status: DonationStatus.AVAILABLE, version: { increment: 1 } },
+      for (const item of reservation.items) {
+        await tx.donationItem.update({
+          where: { id: item.donationItemId },
+          data: {
+            remainingQuantity: { increment: item.quantity },
+            status: DonationItemStatus.AVAILABLE,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      await tx.donationList.update({
+        where: { id: reservation.donationListId },
+        data: { status: DonationListStatus.OPEN, version: { increment: 1 } },
       });
 
       return updated;
@@ -132,52 +217,41 @@ export class ReservationsService {
     await this.auditLogService.record({
       entity: 'Reservation',
       entityId: updated.id,
-      donationId: updated.donationId,
+      donationListId: updated.donationListId,
       eventType: 'RESERVATION_CANCELLED',
       userId: user.id,
       nodeId: user.nodeId,
       newData: updated,
     });
-    await this.syncService.publishEvent('RESERVATION_CANCELLED', updated.donationId, updated);
+    await this.syncService.publishEvent('RESERVATION_CANCELLED', updated.donationListId, updated);
 
     return updated;
   }
 
   /**
-   * Confirma a retirada presencial: quem estiver com o código (doador ou ONG da
-   * reserva) pode submetê-lo. Isso modela o "handshake" físico descrito na seção 14
-   * da especificação (ONG apresenta o código, o estabelecimento confirma), sem
-   * assumir qual dos dois lados literalmente aperta o botão.
-   *
-   * Simplificação documentada: o status intermediário PICKUP_PENDING não é usado
-   * como um passo manual separado nesta fase — a doação vai direto de RESERVED
-   * para PICKED_UP na confirmação. O valor do enum continua reservado para uso
-   * futuro (ex.: notificação "pronto para retirada").
+   * Confirma a retirada presencial pelo código - o código de retirada já é
+   * globalmente único, então identifica a reserva diretamente (não depende
+   * mais de "a" doação ter no máximo uma reserva ativa: agora várias ONGs
+   * podem ter reservas ativas simultâneas sobre itens diferentes da mesma
+   * lista).
    */
-  async confirmPickup(user: AuthenticatedUser, donationId: string, pickupCode: string) {
+  async confirmPickup(user: AuthenticatedUser, pickupCode: string) {
     const pickup = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<LockedDonationRow[]>(
-        Prisma.sql`SELECT id, status, "expiresAt", "donorOrganizationId" FROM donations WHERE id = ${donationId} AND "deletedAt" IS NULL FOR UPDATE`,
-      );
-      const donation = rows[0];
-      if (!donation) {
-        throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
-      }
-
-      const reservation = await tx.reservation.findFirst({
-        where: { donationId, status: ReservationStatus.ACTIVE },
+      const reservation = await tx.reservation.findUnique({
+        where: { pickupCode },
+        include: { donationList: true },
       });
-      if (!reservation) {
+      if (!reservation || reservation.status !== ReservationStatus.ACTIVE) {
         throw new BadRequestException({
-          code: 'NO_ACTIVE_RESERVATION',
-          message: 'Esta doação não possui uma reserva ativa para confirmar retirada.',
+          code: 'INVALID_PICKUP_CODE',
+          message: 'Código de retirada inválido.',
         });
       }
 
       if (user.role !== 'ADMIN') {
         const [isDonorOwner, isNgoOwner] = await Promise.all([
           tx.organizationUser.findFirst({
-            where: { userId: user.id, organizationId: donation.donorOrganizationId },
+            where: { userId: user.id, organizationId: reservation.donationList.donorOrganizationId },
           }),
           tx.organizationUser.findFirst({
             where: { userId: user.id, organizationId: reservation.ngoOrganizationId },
@@ -191,13 +265,6 @@ export class ReservationsService {
         }
       }
 
-      if (reservation.pickupCode !== pickupCode) {
-        throw new BadRequestException({
-          code: 'INVALID_PICKUP_CODE',
-          message: 'Código de retirada inválido.',
-        });
-      }
-
       const pickup = await tx.pickup.create({
         data: { reservationId: reservation.id, confirmedByUserId: user.id, nodeId: user.nodeId },
       });
@@ -207,50 +274,96 @@ export class ReservationsService {
         data: { status: ReservationStatus.COMPLETED },
       });
 
-      await tx.donation.update({
-        where: { id: donationId },
-        data: { status: DonationStatus.PICKED_UP, version: { increment: 1 } },
-      });
+      const [activeReservations, availableItems] = await Promise.all([
+        tx.reservation.count({
+          where: { donationListId: reservation.donationListId, status: ReservationStatus.ACTIVE },
+        }),
+        tx.donationItem.count({
+          where: { donationListId: reservation.donationListId, status: DonationItemStatus.AVAILABLE },
+        }),
+      ]);
+      if (activeReservations === 0 && availableItems === 0) {
+        await tx.donationList.update({
+          where: { id: reservation.donationListId },
+          data: { status: DonationListStatus.CLOSED },
+        });
+      }
 
-      return pickup;
+      return { pickup, donationListId: reservation.donationListId };
     });
 
     await this.auditLogService.record({
       entity: 'Pickup',
-      entityId: pickup.id,
-      donationId,
+      entityId: pickup.pickup.id,
+      donationListId: pickup.donationListId,
       eventType: 'PICKUP_CONFIRMED',
       userId: user.id,
       nodeId: user.nodeId,
-      newData: pickup,
+      newData: pickup.pickup,
     });
-    await this.syncService.publishEvent('PICKUP_CONFIRMED', donationId, pickup);
+    await this.syncService.publishEvent('PICKUP_CONFIRMED', pickup.donationListId, pickup.pickup);
 
-    return pickup;
+    return pickup.pickup;
   }
 
   async findMany(user: AuthenticatedUser) {
+    const include = {
+      donationList: true,
+      ngoOrganization: true,
+      items: { include: { donationItem: true } },
+      conversation: true,
+    } as const;
+
+    let reservations;
     if (user.role === 'ADMIN') {
-      return this.prisma.reservation.findMany({
-        include: { donation: true, ngoOrganization: true },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-
-    if (user.role === 'NGO') {
-      return this.prisma.reservation.findMany({
+      reservations = await this.prisma.reservation.findMany({ include, orderBy: { createdAt: 'desc' } });
+    } else if (user.role === 'NGO') {
+      reservations = await this.prisma.reservation.findMany({
         where: { ngoOrganization: { users: { some: { userId: user.id } } } },
-        include: { donation: true, ngoOrganization: true },
+        include,
+        orderBy: { createdAt: 'desc' },
+      });
+    } else {
+      // DONOR: reservas feitas sobre as próprias doações.
+      reservations = await this.prisma.reservation.findMany({
+        where: { donationList: { donorOrganization: { users: { some: { userId: user.id } } } } },
+        include,
         orderBy: { createdAt: 'desc' },
       });
     }
 
-    // DONOR: reservas feitas sobre as próprias doações.
-    return this.prisma.reservation.findMany({
-      where: { donation: { donorOrganization: { users: { some: { userId: user.id } } } } },
-      include: { donation: true, ngoOrganization: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    return reservations.map(({ conversation, ...reservation }) => ({
+      ...reservation,
+      conversationId: conversation?.id,
+    }));
+  }
+
+  private assertCoversAllAvailableItems(
+    listItems: { id: string; status: DonationItemStatus; remainingQuantity: number }[],
+    requested: { donationItemId: string; quantity?: number }[],
+  ) {
+    const availableItems = listItems.filter((i) => i.status === DonationItemStatus.AVAILABLE);
+    const requestedIds = new Set(requested.map((r) => r.donationItemId));
+
+    const coversAll =
+      availableItems.length === requested.length &&
+      availableItems.every((item) => requestedIds.has(item.id));
+    if (!coversAll) {
+      throw new ConflictException({
+        code: 'PARTIAL_NOT_ALLOWED',
+        message: 'O doador não permite aceite parcial: é preciso reservar todos os itens disponíveis da lista.',
+      });
+    }
+
+    for (const item of availableItems) {
+      const requestedItem = requested.find((r) => r.donationItemId === item.id)!;
+      if (requestedItem.quantity !== undefined && requestedItem.quantity !== item.remainingQuantity) {
+        throw new ConflictException({
+          code: 'PARTIAL_NOT_ALLOWED',
+          message: 'O doador não permite aceite parcial: cada item deve ser reservado por inteiro.',
+        });
+      }
+    }
   }
 
   private async getApprovedNgoOrganization(userId: string) {

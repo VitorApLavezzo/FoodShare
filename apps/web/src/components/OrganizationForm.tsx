@@ -10,7 +10,7 @@ import {
 } from '../lib/organizations';
 import { getApiErrorMessage } from '../lib/api';
 import { fetchAddressByCep, geocodeAddress } from '../lib/cep';
-import { isValidCnpj, formatCnpj } from '../lib/cnpj';
+import { isValidCnpj, formatCnpj, fetchCnpjData } from '../lib/cnpj';
 import { InputField, SelectField, TextareaField } from './ui/Field';
 import { Button } from './ui/Button';
 
@@ -24,6 +24,7 @@ const schema = z.object({
   responsibleName: z.string().min(2, 'Informe o responsável.'),
   description: z.string().optional(),
   estimatedCapacity: z.coerce.number().int().min(0).optional(),
+  notificationRadiusKm: z.coerce.number().int().min(1).optional(),
   street: z.string().min(2, 'Informe a rua.'),
   number: z.string().optional(),
   neighborhood: z.string().min(2, 'Informe o bairro.'),
@@ -70,6 +71,7 @@ export function OrganizationForm({
           responsibleName: organization.responsibleName,
           description: organization.description ?? undefined,
           estimatedCapacity: organization.estimatedCapacity ?? undefined,
+          notificationRadiusKm: organization.notificationRadiusKm ?? undefined,
           street: organization.address.street,
           number: organization.address.number,
           neighborhood: organization.address.neighborhood,
@@ -105,6 +107,29 @@ export function OrganizationForm({
       setFocus('number');
     } catch {
       setCepStatus('not-found');
+    }
+  };
+
+  const handleDocumentBlur = async (event: FocusEvent<HTMLInputElement>) => {
+    if (isEditing) return;
+    const digits = event.target.value.replace(/\D/g, '');
+    if (!isValidCnpj(digits)) return;
+
+    const data = await fetchCnpjData(digits);
+    if (!data) return;
+
+    if (data.legalName && !getValues('legalName')) setValue('legalName', data.legalName, { shouldValidate: true });
+    if (data.tradeName && !getValues('tradeName')) setValue('tradeName', data.tradeName, { shouldValidate: true });
+    if (data.phone && !getValues('phone')) setValue('phone', data.phone, { shouldValidate: true });
+    if (data.email && !getValues('email')) setValue('email', data.email, { shouldValidate: true });
+    if (data.address) {
+      if (data.address.street && !getValues('street')) setValue('street', data.address.street, { shouldValidate: true });
+      if (data.address.number && !getValues('number')) setValue('number', data.address.number);
+      if (data.address.neighborhood && !getValues('neighborhood'))
+        setValue('neighborhood', data.address.neighborhood, { shouldValidate: true });
+      if (data.address.city && !getValues('city')) setValue('city', data.address.city, { shouldValidate: true });
+      if (data.address.state && !getValues('state')) setValue('state', data.address.state, { shouldValidate: true });
+      if (data.address.zipCode && !getValues('zipCode')) setValue('zipCode', data.address.zipCode, { shouldValidate: true });
     }
   };
 
@@ -148,16 +173,21 @@ export function OrganizationForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         {(() => {
-          const { onChange, ...documentField } = register('document');
+          const { onChange, onBlur, ...documentField } = register('document');
           return (
             <InputField
               label="CNPJ"
               placeholder="00.000.000/0000-00"
               maxLength={18}
               error={errors.document?.message}
+              hint="Ao sair do campo, tentamos preencher os dados automaticamente."
               onChange={(e) => {
                 e.target.value = formatCnpj(e.target.value);
                 onChange(e);
+              }}
+              onBlur={(e) => {
+                onBlur(e);
+                handleDocumentBlur(e);
               }}
               {...documentField}
             />
@@ -179,6 +209,17 @@ export function OrganizationForm({
           />
         )}
       </div>
+
+      {kind === 'NGO' && (
+        <InputField
+          type="number"
+          min={1}
+          label="Raio de notificação (km)"
+          hint="Você será alertada quando um doador publicar alimentos dentro dessa distância. Padrão: 50km."
+          error={errors.notificationRadiusKm?.message}
+          {...register('notificationRadiusKm')}
+        />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <InputField label="Telefone" error={errors.phone?.message} {...register('phone')} />

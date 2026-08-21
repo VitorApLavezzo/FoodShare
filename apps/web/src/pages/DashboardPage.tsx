@@ -136,6 +136,13 @@ export function DashboardPage() {
                 <div className="mt-4">
                   <DonationsList mode="own" />
                 </div>
+
+                <div className="mt-8">
+                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Reservas recebidas</h2>
+                  <div className="mt-4">
+                    <ReservationsList />
+                  </div>
+                </div>
               </div>
             )}
 

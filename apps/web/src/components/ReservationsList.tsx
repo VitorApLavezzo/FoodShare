@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { cancelReservation, fetchReservations, type Reservation } from '../lib/reservations';
 import { getApiErrorMessage } from '../lib/api';
+import { ChatPanel } from './ChatPanel';
+import { useAuth } from '../context/AuthContext';
 
 const STATUS_LABEL: Record<Reservation['status'], string> = {
   ACTIVE: 'Ativa',
@@ -20,8 +22,10 @@ function formatDate(value: string) {
 }
 
 export function ReservationsList() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [openChatId, setOpenChatId] = useState<string | null>(null);
 
   const query = useQuery({ queryKey: ['reservations'], queryFn: fetchReservations });
 
@@ -41,7 +45,7 @@ export function ReservationsList() {
   if (items.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700">
-        Você ainda não fez nenhuma reserva.
+        {user?.role === 'NGO' ? 'Você ainda não fez nenhuma reserva.' : 'Nenhuma reserva recebida ainda.'}
       </p>
     );
   }
@@ -57,7 +61,9 @@ export function ReservationsList() {
         <div key={reservation.id} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="font-semibold text-neutral-900 dark:text-white">{reservation.donation.foodName}</h3>
+              <h3 className="font-semibold text-neutral-900 dark:text-white">
+                {reservation.items.map((i) => i.donationItem?.foodName ?? '').filter(Boolean).join(', ')}
+              </h3>
               <p className="text-sm text-neutral-500">
                 Código de retirada: <span className="font-mono">{reservation.pickupCode}</span>
               </p>
@@ -68,16 +74,29 @@ export function ReservationsList() {
           </div>
           <p className="mt-2 text-xs text-neutral-500">
             Reservada em {formatDate(reservation.reservedAt)} · retirada até{' '}
-            {formatDate(reservation.donation.pickupDeadline)}
+            {formatDate(reservation.donationList.pickupDeadline)}
           </p>
-          {reservation.status === 'ACTIVE' && (
+          <div className="mt-3 flex items-center gap-4">
+            {reservation.status === 'ACTIVE' && user?.role === 'NGO' && (
+              <button
+                onClick={() => cancelMutation.mutate(reservation.id)}
+                disabled={cancelMutation.isPending}
+                className="text-sm font-medium text-red-600 hover:underline disabled:opacity-60 dark:text-red-400"
+              >
+                Cancelar reserva
+              </button>
+            )}
             <button
-              onClick={() => cancelMutation.mutate(reservation.id)}
-              disabled={cancelMutation.isPending}
-              className="mt-3 text-sm font-medium text-red-600 hover:underline disabled:opacity-60 dark:text-red-400"
+              onClick={() => setOpenChatId((prev) => (prev === reservation.id ? null : reservation.id))}
+              className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
             >
-              Cancelar reserva
+              {openChatId === reservation.id ? 'Fechar conversa' : 'Conversar'}
             </button>
+          </div>
+          {openChatId === reservation.id && reservation.conversationId && (
+            <div className="mt-3">
+              <ChatPanel conversationId={reservation.conversationId} />
+            </div>
           )}
         </div>
       ))}

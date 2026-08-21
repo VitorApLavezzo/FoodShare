@@ -4,7 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ApprovalStatus, Donation, DonationStatus, OrganizationKind, Prisma } from '@prisma/client';
+import {
+  ApprovalStatus,
+  DonationItemStatus,
+  DonationList,
+  DonationListStatus,
+  OrganizationKind,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateDonationDto } from './dto/create-donation.dto';
@@ -12,8 +19,9 @@ import { UpdateDonationDto } from './dto/update-donation.dto';
 import { QueryDonationsDto } from './dto/query-donations.dto';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
-const EDITABLE_STATUSES: DonationStatus[] = [DonationStatus.AVAILABLE];
+const EDITABLE_STATUSES: DonationListStatus[] = [DonationListStatus.OPEN];
 
 @Injectable()
 export class DonationsService {
@@ -21,42 +29,52 @@ export class DonationsService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly syncService: SyncService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(user: AuthenticatedUser, dto: CreateDonationDto) {
     const organization = await this.getApprovedDonorOrganization(user.id);
     this.assertValidDates(dto.availableAt, dto.pickupDeadline, dto.expiresAt);
 
-    const donation = await this.prisma.donation.create({
+    const donationList = await this.prisma.donationList.create({
       data: {
         donorOrganizationId: organization.id,
         nodeId: user.nodeId,
-        foodName: dto.foodName,
-        category: dto.category,
-        description: dto.description,
-        quantity: dto.quantity,
-        unit: dto.unit,
-        batch: dto.batch,
-        storageCondition: dto.storageCondition,
+        allowPartial: dto.allowPartial,
         notes: dto.notes,
         availableAt: new Date(dto.availableAt),
         pickupDeadline: new Date(dto.pickupDeadline),
         expiresAt: new Date(dto.expiresAt),
+        items: {
+          create: dto.items.map((item) => ({
+            foodName: item.foodName,
+            category: item.category,
+            description: item.description,
+            quantity: item.quantity,
+            remainingQuantity: item.quantity,
+            unit: item.unit,
+            batch: item.batch,
+            storageCondition: item.storageCondition,
+          })),
+        },
       },
+      include: { items: true },
     });
 
     await this.auditLogService.record({
-      entity: 'Donation',
-      entityId: donation.id,
-      donationId: donation.id,
-      eventType: 'DONATION_CREATED',
+      entity: 'DonationList',
+      entityId: donationList.id,
+      donationListId: donationList.id,
+      eventType: 'DONATION_LIST_CREATED',
       userId: user.id,
       nodeId: user.nodeId,
-      newData: donation,
+      newData: donationList,
     });
-    await this.syncService.publishEvent('DONATION_CREATED', donation.id, donation);
+    await this.syncService.publishEvent('DONATION_LIST_CREATED', donationList.id, donationList);
 
-    return donation;
+    await this.notificationsService.notifyNearbyNgos(donationList, organization.addressId);
+
+    return donationList;
   }
 
   async findMany(user: AuthenticatedUser, query: QueryDonationsDto) {
@@ -76,51 +94,57 @@ export class DonationsService {
       donorOrganizationWhere.address = { city: { equals: query.city, mode: 'insensitive' } };
     }
 
-    const where: Prisma.DonationWhereInput = {
+    const where: Prisma.DonationListWhereInput = {
       deletedAt: null,
       donorOrganization: donorOrganizationWhere,
     };
 
     if (user.role === 'NGO') {
-      where.status = DonationStatus.AVAILABLE;
+      where.status = { in: [DonationListStatus.OPEN] };
       where.expiresAt = { gt: new Date() };
     }
 
-    if (query.category) where.category = query.category;
-    if (query.search) where.foodName = { contains: query.search, mode: 'insensitive' };
+    if (query.category || query.search) {
+      where.items = {
+        some: {
+          ...(query.category ? { category: query.category } : {}),
+          ...(query.search ? { foodName: { contains: query.search, mode: 'insensitive' } } : {}),
+        },
+      };
+    }
 
     const [items, total] = await this.prisma.$transaction([
-      this.prisma.donation.findMany({
+      this.prisma.donationList.findMany({
         where,
-        include: { donorOrganization: { include: { address: true } } },
+        include: { donorOrganization: { include: { address: true } }, items: true },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.donation.count({ where }),
+      this.prisma.donationList.count({ where }),
     ]);
 
     return { items, total, page, limit };
   }
 
   async findOne(user: AuthenticatedUser, id: string) {
-    const donation = await this.prisma.donation.findFirst({
+    const donationList = await this.prisma.donationList.findFirst({
       where: { id, deletedAt: null },
-      include: { donorOrganization: { include: { address: true } } },
+      include: { donorOrganization: { include: { address: true } }, items: true },
     });
-    if (!donation) {
+    if (!donationList) {
       throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
     }
 
-    if (user.role === 'ADMIN') return donation;
+    if (user.role === 'ADMIN') return donationList;
 
-    const isOwner = await this.isOwnerOfDonation(user.id, donation);
-    if (isOwner) return donation;
+    const isOwner = await this.isOwnerOfDonationList(user.id, donationList);
+    if (isOwner) return donationList;
 
     const visibleToNgo =
-      donation.status === DonationStatus.AVAILABLE &&
-      donation.donorOrganization.approvalStatus === ApprovalStatus.APPROVED;
-    if (user.role === 'NGO' && visibleToNgo) return donation;
+      donationList.status === DonationListStatus.OPEN &&
+      donationList.donorOrganization.approvalStatus === ApprovalStatus.APPROVED;
+    if (user.role === 'NGO' && visibleToNgo) return donationList;
 
     throw new ForbiddenException({
       code: 'FORBIDDEN_DONATION_ACCESS',
@@ -129,17 +153,17 @@ export class DonationsService {
   }
 
   async update(user: AuthenticatedUser, id: string, dto: UpdateDonationDto) {
-    const donation = await this.getOwnedEditableDonation(user, id);
+    const donationList = await this.getOwnedEditableDonationList(user, id);
 
-    const availableAt = dto.availableAt ?? donation.availableAt.toISOString();
-    const pickupDeadline = dto.pickupDeadline ?? donation.pickupDeadline.toISOString();
-    const expiresAt = dto.expiresAt ?? donation.expiresAt.toISOString();
+    const availableAt = dto.availableAt ?? donationList.availableAt.toISOString();
+    const pickupDeadline = dto.pickupDeadline ?? donationList.pickupDeadline.toISOString();
+    const expiresAt = dto.expiresAt ?? donationList.expiresAt.toISOString();
     this.assertValidDates(availableAt, pickupDeadline, expiresAt);
 
-    const updated = await this.prisma.donation.update({
-      where: { id: donation.id },
+    const updated = await this.prisma.donationList.update({
+      where: { id: donationList.id },
       data: {
-        ...dto,
+        notes: dto.notes,
         availableAt: dto.availableAt ? new Date(dto.availableAt) : undefined,
         pickupDeadline: dto.pickupDeadline ? new Date(dto.pickupDeadline) : undefined,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
@@ -148,49 +172,60 @@ export class DonationsService {
     });
 
     await this.auditLogService.record({
-      entity: 'Donation',
+      entity: 'DonationList',
       entityId: updated.id,
-      donationId: updated.id,
-      eventType: 'DONATION_UPDATED',
+      donationListId: updated.id,
+      eventType: 'DONATION_LIST_UPDATED',
       userId: user.id,
       nodeId: user.nodeId,
-      previousData: donation,
+      previousData: donationList,
       newData: updated,
     });
-    await this.syncService.publishEvent('DONATION_UPDATED', updated.id, updated);
+    await this.syncService.publishEvent('DONATION_LIST_UPDATED', updated.id, updated);
 
     return updated;
   }
 
   async cancel(user: AuthenticatedUser, id: string) {
-    const donation = await this.getOwnedEditableDonation(user, id);
-    const updated = await this.prisma.donation.update({
-      where: { id: donation.id },
-      data: { status: DonationStatus.CANCELLED, version: { increment: 1 } },
-    });
+    const donationList = await this.getOwnedEditableDonationList(user, id);
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.donationList.update({
+        where: { id: donationList.id },
+        data: { status: DonationListStatus.CANCELLED, version: { increment: 1 } },
+      }),
+      this.prisma.donationItem.updateMany({
+        where: { donationListId: donationList.id, status: DonationItemStatus.AVAILABLE },
+        data: { status: DonationItemStatus.CANCELLED },
+      }),
+    ]);
 
     await this.auditLogService.record({
-      entity: 'Donation',
+      entity: 'DonationList',
       entityId: updated.id,
-      donationId: updated.id,
-      eventType: 'DONATION_CANCELLED',
+      donationListId: updated.id,
+      eventType: 'DONATION_LIST_CANCELLED',
       userId: user.id,
       nodeId: user.nodeId,
-      previousData: donation,
+      previousData: donationList,
       newData: updated,
     });
-    await this.syncService.publishEvent('DONATION_CANCELLED', updated.id, updated);
+    await this.syncService.publishEvent('DONATION_LIST_CANCELLED', updated.id, updated);
+    await this.notificationsService.removeForDonationList(updated.id);
 
     return updated;
   }
 
-  private async getOwnedEditableDonation(user: AuthenticatedUser, id: string) {
-    const donation = await this.prisma.donation.findFirst({ where: { id, deletedAt: null } });
-    if (!donation) {
+  private async getOwnedEditableDonationList(user: AuthenticatedUser, id: string) {
+    const donationList = await this.prisma.donationList.findFirst({
+      where: { id, deletedAt: null },
+      include: { items: true },
+    });
+    if (!donationList) {
       throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
     }
 
-    const isOwner = user.role === 'ADMIN' || (await this.isOwnerOfDonation(user.id, donation));
+    const isOwner = user.role === 'ADMIN' || (await this.isOwnerOfDonationList(user.id, donationList));
     if (!isOwner) {
       throw new ForbiddenException({
         code: 'FORBIDDEN_DONATION_ACCESS',
@@ -198,19 +233,29 @@ export class DonationsService {
       });
     }
 
-    if (!EDITABLE_STATUSES.includes(donation.status)) {
+    if (!EDITABLE_STATUSES.includes(donationList.status)) {
       throw new BadRequestException({
         code: 'DONATION_NOT_EDITABLE',
         message: 'Esta doação não pode mais ser alterada (já reservada, retirada ou encerrada).',
       });
     }
 
-    return donation;
+    const anyItemAlreadyReserved = donationList.items.some(
+      (item) => item.remainingQuantity < item.quantity,
+    );
+    if (anyItemAlreadyReserved) {
+      throw new BadRequestException({
+        code: 'DONATION_PARTIALLY_RESERVED',
+        message: 'Esta lista já possui itens reservados e não pode mais ser alterada ou cancelada por inteiro.',
+      });
+    }
+
+    return donationList;
   }
 
-  private async isOwnerOfDonation(userId: string, donation: Donation) {
+  private async isOwnerOfDonationList(userId: string, donationList: DonationList) {
     const link = await this.prisma.organizationUser.findFirst({
-      where: { userId, organizationId: donation.donorOrganizationId },
+      where: { userId, organizationId: donationList.donorOrganizationId },
     });
     return !!link;
   }

@@ -1,6 +1,6 @@
 import { registerDecorator, ValidationOptions } from 'class-validator';
 
-function isValidCnpj(value: unknown): boolean {
+export function isValidCnpj(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   const digits = value.replace(/\D/g, '');
   if (digits.length !== 14) return false;

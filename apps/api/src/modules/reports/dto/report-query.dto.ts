@@ -12,15 +12,7 @@ const CATEGORIES = [
   'OTHER',
 ] as const;
 
-const STATUSES = [
-  'AVAILABLE',
-  'RESERVED',
-  'PICKUP_PENDING',
-  'PICKED_UP',
-  'DISTRIBUTED',
-  'EXPIRED',
-  'CANCELLED',
-] as const;
+const STATUSES = ['AVAILABLE', 'FULLY_RESERVED', 'CANCELLED'] as const;
 
 const FORMATS = ['json', 'csv'] as const;
 

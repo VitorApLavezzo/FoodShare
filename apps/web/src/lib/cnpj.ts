@@ -1,3 +1,34 @@
+import { api } from './api';
+
+export interface CnpjLookupResult {
+  found: boolean;
+  legalName?: string;
+  tradeName?: string;
+  phone?: string;
+  email?: string;
+  address?: {
+    street?: string;
+    number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  };
+}
+
+// Nunca lança: se a consulta falhar (CNPJ inexistente, serviço fora do ar),
+// o formulário continua utilizável para preenchimento manual.
+export async function fetchCnpjData(document: string): Promise<CnpjLookupResult | null> {
+  const digits = document.replace(/\D/g, '');
+  if (digits.length !== 14) return null;
+  try {
+    const { data } = await api.get<CnpjLookupResult>(`/cnpj/${digits}`);
+    return data.found ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isValidCnpj(value: string): boolean {
   const digits = value.replace(/\D/g, '');
   if (digits.length !== 14) return false;

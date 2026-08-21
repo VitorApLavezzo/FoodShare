@@ -10,33 +10,36 @@ export type DonationCategory =
   | 'BEVERAGES'
   | 'OTHER';
 
-export type DonationStatus =
-  | 'AVAILABLE'
-  | 'RESERVED'
-  | 'PICKUP_PENDING'
-  | 'PICKED_UP'
-  | 'DISTRIBUTED'
-  | 'EXPIRED'
-  | 'CANCELLED';
+export type DonationListStatus = 'OPEN' | 'FULLY_RESERVED' | 'CANCELLED' | 'CLOSED';
+export type DonationItemStatus = 'AVAILABLE' | 'FULLY_RESERVED' | 'CANCELLED';
 
-export interface Donation {
+export interface DonationItem {
   id: string;
   foodName: string;
   category: DonationCategory;
   description?: string | null;
   quantity: number;
+  remainingQuantity: number;
   unit: string;
+  status: DonationItemStatus;
+}
+
+export interface DonationList {
+  id: string;
+  allowPartial: boolean;
+  status: DonationListStatus;
+  notes?: string | null;
   availableAt: string;
   pickupDeadline: string;
   expiresAt: string;
-  status: DonationStatus;
+  items: DonationItem[];
   donorOrganization?: {
     tradeName: string;
     address: { city: string; state: string };
   };
 }
 
-export interface CreateDonationInput {
+export interface CreateDonationItemInput {
   foodName: string;
   category: DonationCategory;
   description?: string;
@@ -44,31 +47,48 @@ export interface CreateDonationInput {
   unit: string;
   batch?: string;
   storageCondition?: string;
+}
+
+export interface CreateDonationListInput {
+  items: CreateDonationItemInput[];
+  allowPartial: boolean;
   notes?: string;
   availableAt: string;
   pickupDeadline: string;
   expiresAt: string;
 }
 
-export interface DonationsPage {
-  items: Donation[];
+export interface UpdateDonationListInput {
+  notes?: string;
+  availableAt?: string;
+  pickupDeadline?: string;
+  expiresAt?: string;
+}
+
+export interface DonationListsPage {
+  items: DonationList[];
   total: number;
   page: number;
   limit: number;
 }
 
 export async function fetchDonations(params: { category?: string; search?: string } = {}) {
-  const { data } = await api.get<DonationsPage>('/donations', { params });
+  const { data } = await api.get<DonationListsPage>('/donations', { params });
   return data;
 }
 
-export async function createDonation(input: CreateDonationInput) {
-  const { data } = await api.post<Donation>('/donations', input);
+export async function createDonation(input: CreateDonationListInput) {
+  const { data } = await api.post<DonationList>('/donations', input);
+  return data;
+}
+
+export async function updateDonation(id: string, input: UpdateDonationListInput) {
+  const { data } = await api.put<DonationList>(`/donations/${id}`, input);
   return data;
 }
 
 export async function cancelDonation(id: string) {
-  const { data } = await api.delete<Donation>(`/donations/${id}`);
+  const { data } = await api.delete<DonationList>(`/donations/${id}`);
   return data;
 }
 
@@ -83,12 +103,15 @@ export const CATEGORY_LABEL: Record<DonationCategory, string> = {
   OTHER: 'Outros',
 };
 
-export const STATUS_LABEL: Record<DonationStatus, string> = {
-  AVAILABLE: 'Disponível',
-  RESERVED: 'Reservada',
-  PICKUP_PENDING: 'Aguardando retirada',
-  PICKED_UP: 'Retirada',
-  DISTRIBUTED: 'Distribuída',
-  EXPIRED: 'Expirada',
+export const DONATION_LIST_STATUS_LABEL: Record<DonationListStatus, string> = {
+  OPEN: 'Disponível',
+  FULLY_RESERVED: 'Totalmente reservada',
   CANCELLED: 'Cancelada',
+  CLOSED: 'Encerrada',
+};
+
+export const DONATION_ITEM_STATUS_LABEL: Record<DonationItemStatus, string> = {
+  AVAILABLE: 'Disponível',
+  FULLY_RESERVED: 'Reservado',
+  CANCELLED: 'Cancelado',
 };

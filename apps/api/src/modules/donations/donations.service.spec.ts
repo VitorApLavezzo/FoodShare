@@ -6,26 +6,35 @@ import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 describe('DonationsService', () => {
   const user: AuthenticatedUser = { id: 'user-1', email: 'a@a.com', role: 'DONOR', nodeId: 'LIMEIRA' };
   const approvedOrgLink = {
-    organization: { id: 'org-1', kind: OrganizationKind.DONOR, approvalStatus: ApprovalStatus.APPROVED },
+    organization: {
+      id: 'org-1',
+      addressId: 'address-1',
+      kind: OrganizationKind.DONOR,
+      approvalStatus: ApprovalStatus.APPROVED,
+    },
   };
 
   function buildService(prismaOverrides: Record<string, unknown> = {}) {
     const prisma = {
       organizationUser: { findFirst: jest.fn().mockResolvedValue(approvedOrgLink) },
-      donation: { create: jest.fn().mockResolvedValue({ id: 'donation-1' }) },
+      donationList: { create: jest.fn().mockResolvedValue({ id: 'donation-list-1' }) },
       ...prismaOverrides,
     };
     const auditLogService = { record: jest.fn() };
     const syncService = { publishEvent: jest.fn() };
-    const service = new DonationsService(prisma as never, auditLogService as never, syncService as never);
-    return { service, prisma, auditLogService, syncService };
+    const notificationsService = { notifyNearbyNgos: jest.fn().mockResolvedValue(undefined) };
+    const service = new DonationsService(
+      prisma as never,
+      auditLogService as never,
+      syncService as never,
+      notificationsService as never,
+    );
+    return { service, prisma, auditLogService, syncService, notificationsService };
   }
 
   const baseDto = {
-    foodName: 'Arroz',
-    category: 'PACKAGED_GOODS' as const,
-    quantity: 10,
-    unit: 'kg',
+    allowPartial: true,
+    items: [{ foodName: 'Arroz', category: 'PACKAGED_GOODS' as const, quantity: 10, unit: 'kg' }],
   };
 
   it('rejeita quando o prazo de retirada é anterior à disponibilidade', async () => {
@@ -64,8 +73,8 @@ describe('DonationsService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('cria a doação e registra auditoria + evento de sincronização quando os dados são válidos', async () => {
-    const { service, prisma, auditLogService, syncService } = buildService();
+  it('cria a lista de doação e registra auditoria + evento de sincronização + notificação quando os dados são válidos', async () => {
+    const { service, prisma, auditLogService, syncService, notificationsService } = buildService();
     const future = new Date(Date.now() + 10 * 86_400_000).toISOString();
     const later = new Date(Date.now() + 15 * 86_400_000).toISOString();
 
@@ -76,11 +85,16 @@ describe('DonationsService', () => {
       expiresAt: later,
     });
 
-    expect(prisma.donation.create).toHaveBeenCalledTimes(1);
+    expect(prisma.donationList.create).toHaveBeenCalledTimes(1);
     expect(auditLogService.record).toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'DONATION_CREATED' }),
+      expect.objectContaining({ eventType: 'DONATION_LIST_CREATED' }),
     );
-    expect(syncService.publishEvent).toHaveBeenCalledWith('DONATION_CREATED', 'donation-1', expect.anything());
+    expect(syncService.publishEvent).toHaveBeenCalledWith(
+      'DONATION_LIST_CREATED',
+      'donation-list-1',
+      expect.anything(),
+    );
+    expect(notificationsService.notifyNearbyNgos).toHaveBeenCalledWith(expect.anything(), 'address-1');
   });
 
   it('rejeita a criação quando o doador não tem organização cadastrada', async () => {
@@ -102,7 +116,12 @@ describe('DonationsService', () => {
     const { service } = buildService({
       organizationUser: {
         findFirst: jest.fn().mockResolvedValue({
-          organization: { id: 'org-1', kind: OrganizationKind.DONOR, approvalStatus: ApprovalStatus.PENDING },
+          organization: {
+            id: 'org-1',
+            addressId: 'address-1',
+            kind: OrganizationKind.DONOR,
+            approvalStatus: ApprovalStatus.PENDING,
+          },
         }),
       },
     });

@@ -6,7 +6,12 @@ import {
   downloadDonationsCsv,
   type ReportFilters,
 } from '../lib/reports';
-import { CATEGORY_LABEL, STATUS_LABEL, type DonationCategory, type DonationStatus } from '../lib/donations';
+import {
+  CATEGORY_LABEL,
+  DONATION_ITEM_STATUS_LABEL,
+  type DonationCategory,
+  type DonationItemStatus,
+} from '../lib/donations';
 import { AppHeader } from '../components/layout/AppHeader';
 import { Button } from '../components/ui/Button';
 
@@ -82,7 +87,7 @@ export function ReportsPage() {
           <label className="mb-1 block text-xs text-neutral-500">Status</label>
           <select className={inputClass} onChange={(e) => update({ status: e.target.value || undefined })}>
             <option value="">Todos</option>
-            {Object.entries(STATUS_LABEL).map(([value, label]) => (
+            {Object.entries(DONATION_ITEM_STATUS_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
@@ -150,7 +155,7 @@ export function ReportsPage() {
                 <td className="px-3 py-2">
                   {row.quantity} {row.unit}
                 </td>
-                <td className="px-3 py-2">{STATUS_LABEL[row.status as DonationStatus] ?? row.status}</td>
+                <td className="px-3 py-2">{DONATION_ITEM_STATUS_LABEL[row.status as DonationItemStatus] ?? row.status}</td>
                 <td className="px-3 py-2">{row.donorName}</td>
                 <td className="px-3 py-2">
                   {row.donorCity}/{row.donorState}

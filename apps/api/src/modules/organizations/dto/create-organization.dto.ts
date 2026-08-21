@@ -62,6 +62,15 @@ export class CreateOrganizationDto {
   @Min(0)
   estimatedCapacity?: number;
 
+  @ApiProperty({
+    required: false,
+    description: 'Raio (km) para receber alertas de doação próxima (apenas ONG). Se omitido, usa o padrão da plataforma.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  notificationRadiusKm?: number;
+
   @ApiProperty({ type: AddressDto })
   @ValidateNested()
   @Type(() => AddressDto)

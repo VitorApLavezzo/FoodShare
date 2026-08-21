@@ -37,6 +37,7 @@ model User {
   auditLogs         AuditLog[]
   notifications     Notification[]
   pickupsConfirmed  Pickup[]           @relation("PickupConfirmedBy")
+  messages          Message[]
 
   @@index([role])
   @@index([nodeId])
@@ -102,30 +103,31 @@ enum OrganizationKind {
 }
 
 model Organization {
-  id                String            @id @default(uuid())
-  kind              OrganizationKind
-  legalName         String
-  tradeName         String
-  document          String? // CNPJ, opcional para ONGs informais
-  type              OrganizationType?
-  phone             String
-  email             String
-  responsibleName   String
-  description       String?
-  operatingHours    String?
-  estimatedCapacity Int? // capacidade aproximada de atendimento (ONG)
-  approvalStatus    ApprovalStatus    @default(PENDING)
-  nodeId            String
-  version           Int               @default(1)
-  addressId         String
-  address           Address           @relation(fields: [addressId], references: [id])
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  deletedAt         DateTime?
+  id                   String            @id @default(uuid())
+  kind                 OrganizationKind
+  legalName            String
+  tradeName            String
+  document             String? // CNPJ, opcional para ONGs informais
+  type                 OrganizationType?
+  phone                String
+  email                String
+  responsibleName      String
+  description          String?
+  operatingHours       String?
+  estimatedCapacity    Int? // capacidade aproximada de atendimento (ONG)
+  notificationRadiusKm Int? // ONG: raio (km) para alertas de doação próxima; null usa o padrão global
+  approvalStatus       ApprovalStatus    @default(PENDING)
+  nodeId               String
+  version              Int               @default(1)
+  addressId            String
+  address              Address           @relation(fields: [addressId], references: [id])
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  deletedAt            DateTime?
 
-  users        OrganizationUser[]
-  donations    Donation[]         @relation("DonorOrganization")
-  reservations Reservation[]      @relation("NgoOrganization")
+  users         OrganizationUser[]
+  donationLists DonationList[]     @relation("DonorOrganization")
+  reservations  Reservation[]      @relation("NgoOrganization")
 
   @@index([kind, approvalStatus])
   @@map("organizations")
@@ -156,46 +158,72 @@ enum DonationCategory {
   OTHER
 }
 
-enum DonationStatus {
-  AVAILABLE
-  RESERVED
-  PICKUP_PENDING
-  PICKED_UP
-  DISTRIBUTED
-  EXPIRED
+enum DonationListStatus {
+  OPEN
+  FULLY_RESERVED
   CANCELLED
+  CLOSED
 }
 
-model Donation {
-  id                  String           @id @default(uuid())
+// Toda doação é uma lista de 1+ itens. Doador decide em allowPartial se a ONG
+// pode reservar item a item/parcialmente ou só a lista inteira de uma vez.
+model DonationList {
+  id                  String             @id @default(uuid())
   donorOrganizationId String
-  donorOrganization   Organization     @relation("DonorOrganization", fields: [donorOrganizationId], references: [id])
+  donorOrganization   Organization       @relation("DonorOrganization", fields: [donorOrganizationId], references: [id])
   nodeId              String
-  foodName            String
-  category            DonationCategory
-  description         String?
-  quantity            Float
-  unit                String
-  batch               String?
-  storageCondition    String?
+  allowPartial        Boolean            @default(true)
+  status              DonationListStatus @default(OPEN)
   notes               String?
   availableAt         DateTime
   pickupDeadline      DateTime
   expiresAt           DateTime
-  status              DonationStatus   @default(AVAILABLE)
-  version             Int              @default(1)
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  version             Int                @default(1)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
   deletedAt           DateTime?
 
-  reservations Reservation[]
-  auditLogs    AuditLog[]
+  items         DonationItem[]
+  reservations  Reservation[]
+  conversations Conversation[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
 
   @@index([status])
   @@index([expiresAt])
-  @@index([category])
   @@index([nodeId])
-  @@map("donations")
+  @@map("donation_lists")
+}
+
+enum DonationItemStatus {
+  AVAILABLE
+  FULLY_RESERVED
+  CANCELLED
+}
+
+model DonationItem {
+  id                String             @id @default(uuid())
+  donationListId    String
+  donationList      DonationList       @relation(fields: [donationListId], references: [id])
+  foodName          String
+  category          DonationCategory
+  description       String?
+  quantity          Float
+  remainingQuantity Float
+  unit              String
+  batch             String?
+  storageCondition  String?
+  status            DonationItemStatus @default(AVAILABLE)
+  version           Int                @default(1)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  reservationItems ReservationItem[]
+
+  @@index([status])
+  @@index([category])
+  @@index([donationListId])
+  @@map("donation_items")
 }
 
 // ---------- Reservas / Retiradas ----------
@@ -208,8 +236,8 @@ enum ReservationStatus {
 
 model Reservation {
   id                String            @id @default(uuid())
-  donationId        String
-  donation          Donation          @relation(fields: [donationId], references: [id])
+  donationListId    String
+  donationList      DonationList      @relation(fields: [donationListId], references: [id])
   ngoOrganizationId String
   ngoOrganization   Organization      @relation("NgoOrganization", fields: [ngoOrganizationId], references: [id])
   status            ReservationStatus @default(ACTIVE)
@@ -220,11 +248,55 @@ model Reservation {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  pickup Pickup?
+  items        ReservationItem[]
+  pickup       Pickup?
+  conversation Conversation?
 
   @@index([status])
-  @@index([donationId])
+  @@index([donationListId])
   @@map("reservations")
+}
+
+model ReservationItem {
+  id             String       @id @default(uuid())
+  reservationId  String
+  reservation    Reservation  @relation(fields: [reservationId], references: [id])
+  donationItemId String
+  donationItem   DonationItem @relation(fields: [donationItemId], references: [id])
+  quantity       Float
+
+  @@index([reservationId])
+  @@index([donationItemId])
+  @@map("reservation_items")
+}
+
+// ---------- Chat (doador <-> ONG por reserva) ----------
+
+model Conversation {
+  id             String       @id @default(uuid())
+  reservationId  String       @unique
+  reservation    Reservation  @relation(fields: [reservationId], references: [id])
+  donationListId String
+  donationList   DonationList @relation(fields: [donationListId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  messages Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderUserId   String
+  senderUser     User         @relation(fields: [senderUserId], references: [id])
+  body           String
+  nodeId         String
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 model Pickup {
@@ -292,19 +364,19 @@ model SyncEvent {
 // ---------- Auditoria ----------
 
 model AuditLog {
-  id            String    @id @default(uuid())
-  entity        String
-  entityId      String
-  eventType     String
-  userId        String?
-  user          User?     @relation(fields: [userId], references: [id])
-  donationId    String?
-  donation      Donation? @relation(fields: [donationId], references: [id])
-  nodeId        String
-  previousData  Json?
-  newData       Json?
-  correlationId String?
-  createdAt     DateTime  @default(now())
+  id             String        @id @default(uuid())
+  entity         String
+  entityId       String
+  eventType      String
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
+  donationListId String?
+  donationList   DonationList? @relation(fields: [donationListId], references: [id])
+  nodeId         String
+  previousData   Json?
+  newData        Json?
+  correlationId  String?
+  createdAt      DateTime      @default(now())
 
   @@index([entity, entityId])
   @@index([createdAt])
@@ -322,15 +394,18 @@ enum NotificationType {
 }
 
 model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  title     String
-  message   String
-  readAt    DateTime?
-  createdAt DateTime         @default(now())
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           NotificationType
+  title          String
+  message        String
+  donationListId String?
+  donationList   DonationList?    @relation(fields: [donationListId], references: [id], onDelete: Cascade)
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
 
   @@index([userId, readAt])
+  @@index([donationListId])
   @@map("notifications")
 }

@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Logo } from './Logo';
 import { Button } from '../ui/Button';
+import { NotificationsBell } from '../NotificationsBell';
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -51,6 +52,7 @@ export function AppHeader() {
         </div>
 
         <div className="flex items-center gap-3">
+          {(user.role === 'DONOR' || user.role === 'NGO') && <NotificationsBell />}
           <Link
             to="/account"
             className="hidden rounded-lg px-2 py-1 text-right transition hover:bg-neutral-100 sm:block dark:hover:bg-neutral-800"

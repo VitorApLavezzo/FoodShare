@@ -1,25 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-
-const CATEGORIES = [
-  'PREPARED_MEALS',
-  'FRUITS',
-  'VEGETABLES',
-  'LEGUMES',
-  'PACKAGED_GOODS',
-  'BAKERY',
-  'BEVERAGES',
-  'OTHER',
-] as const;
+import { DONATION_CATEGORIES } from './create-donation-item.dto';
 
 export class QueryDonationsDto {
-  @ApiPropertyOptional({ enum: CATEGORIES })
+  @ApiPropertyOptional({ enum: DONATION_CATEGORIES, description: 'Filtra listas que contenham algum item dessa categoria.' })
   @IsOptional()
-  @IsIn(CATEGORIES)
-  category?: (typeof CATEGORIES)[number];
+  @IsIn(DONATION_CATEGORIES)
+  category?: (typeof DONATION_CATEGORIES)[number];
 
-  @ApiPropertyOptional({ description: 'Busca por nome do alimento.' })
+  @ApiPropertyOptional({ description: 'Busca por nome de alimento em algum item da lista.' })
   @IsOptional()
   @IsString()
   search?: string;

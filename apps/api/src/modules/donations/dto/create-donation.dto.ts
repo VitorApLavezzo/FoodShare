@@ -1,50 +1,33 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { DonationCategory } from '@prisma/client';
-import { IsDateString, IsIn, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
-
-const CATEGORIES = [
-  'PREPARED_MEALS',
-  'FRUITS',
-  'VEGETABLES',
-  'LEGUMES',
-  'PACKAGED_GOODS',
-  'BAKERY',
-  'BEVERAGES',
-  'OTHER',
-] as const;
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { CreateDonationItemDto } from './create-donation-item.dto';
 
 export class CreateDonationDto {
-  @ApiProperty()
-  @IsString()
-  foodName!: string;
+  @ApiProperty({
+    type: [CreateDonationItemDto],
+    description: 'Itens da lista de doação (mínimo 1).',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateDonationItemDto)
+  items!: CreateDonationItemDto[];
 
-  @ApiProperty({ enum: CATEGORIES })
-  @IsIn(CATEGORIES)
-  category!: DonationCategory;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @ApiProperty({ description: 'Deve ser maior que zero.' })
-  @IsNumber()
-  @IsPositive()
-  quantity!: number;
-
-  @ApiProperty({ example: 'kg' })
-  @IsString()
-  unit!: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  batch?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  storageCondition?: string;
+  @ApiProperty({
+    default: true,
+    description: 'Se true, a ONG pode aceitar a lista parcialmente (item a item, total ou parcial). Se false, só reserva tudo de uma vez.',
+  })
+  @IsBoolean()
+  allowPartial: boolean = true;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -59,7 +42,7 @@ export class CreateDonationDto {
   @IsDateString()
   pickupDeadline!: string;
 
-  @ApiProperty({ description: 'Validade do alimento.' })
+  @ApiProperty({ description: 'Validade da lista.' })
   @IsDateString()
   expiresAt!: string;
 }

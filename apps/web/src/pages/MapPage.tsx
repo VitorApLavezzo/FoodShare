@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { fetchMapDonors, fetchMapNgos, fetchMapDonations } from '../lib/map';
-import { CATEGORY_LABEL, type DonationCategory } from '../lib/donations';
+import { CATEGORY_LABEL } from '../lib/donations';
 import { AppHeader } from '../components/layout/AppHeader';
 
 const DEFAULT_CENTER: [number, number] = [-22.5, -47.4]; // Limeira/SP
@@ -150,9 +150,9 @@ export function MapPage() {
           {donationsQuery.data?.map((donation) => (
             <Marker key={donation.id} position={[donation.latitude, donation.longitude]} icon={donationIcon}>
               <Popup>
-                <strong>{donation.foodName}</strong>
+                <strong>{donation.items.map((i) => i.foodName).join(', ')}</strong>
                 <br />
-                {CATEGORY_LABEL[donation.category as DonationCategory]} · {donation.quantity} {donation.unit}
+                {donation.items.map((i) => `${i.foodName}: ${i.remainingQuantity} ${i.unit}`).join(' · ')}
                 <br />
                 {donation.donorName}
                 <br />
@@ -177,14 +177,18 @@ export function MapPage() {
           {donationsQuery.data?.map((donation) => (
             <li key={donation.id} className="flex items-center justify-between py-2 text-sm">
               <div>
-                <span className="font-medium text-neutral-900 dark:text-white">{donation.foodName}</span>
+                <span className="font-medium text-neutral-900 dark:text-white">
+                  {donation.items.map((i) => i.foodName).join(', ')}
+                </span>
                 <span className="text-neutral-500">
                   {' '}
                   · {donation.donorName} · {donation.city}/{donation.state}
                   {donation.distanceKm !== null && ` · ${donation.distanceKm} km`}
                 </span>
               </div>
-              <span className="text-neutral-500">{donation.quantity} {donation.unit}</span>
+              <span className="text-neutral-500">
+                {donation.items.length} {donation.items.length === 1 ? 'item' : 'itens'}
+              </span>
             </li>
           ))}
         </ul>

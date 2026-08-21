@@ -27,6 +27,7 @@ export interface Organization {
   description?: string | null;
   operatingHours?: string | null;
   estimatedCapacity?: number | null;
+  notificationRadiusKm?: number | null;
   approvalStatus: ApprovalStatus;
   address: Address;
 }
@@ -42,6 +43,7 @@ export interface CreateOrganizationInput {
   description?: string;
   operatingHours?: string;
   estimatedCapacity?: number;
+  notificationRadiusKm?: number;
   address: Address;
 }
 

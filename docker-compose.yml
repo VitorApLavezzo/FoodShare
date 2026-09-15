@@ -22,6 +22,11 @@ x-api-common: &api-common
     JWT_REFRESH_EXPIRES_IN: 7d
     PORT: 3000
     CORS_ORIGIN: http://localhost:5173
+    # Fotos dos alimentos ficam num volume compartilhado: os três nós servem o
+    # mesmo arquivo, independentemente de qual deles recebeu o upload.
+    UPLOADS_DIR: /repo/apps/api/uploads
+  volumes:
+    - uploads_data:/repo/apps/api/uploads
 
 services:
   postgres:
@@ -126,3 +131,4 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:

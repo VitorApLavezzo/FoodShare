@@ -35,4 +35,14 @@ export class CreateDonationItemDto {
   @IsOptional()
   @IsString()
   storageCondition?: string;
+
+  @ApiProperty({ required: false, description: 'URL devolvida por POST /uploads/images.' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @ApiProperty({ required: false, description: 'Alergênicos presentes (ex.: contém glúten, leite).' })
+  @IsOptional()
+  @IsString()
+  allergens?: string;
 }

@@ -22,18 +22,25 @@ enum UserRole {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         UserRole
-  isActive     Boolean  @default(true)
-  nodeId       String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String
+  name              String
+  role              UserRole
+  isActive          Boolean   @default(true)
+  // Motivo do bloqueio administrativo, mostrado ao usuário no login.
+  deactivatedReason String?
+  emailVerifiedAt   DateTime?
+  nodeId            String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  // Exclusão de conta (LGPD): os dados pessoais são anonimizados e a conta
+  // marcada aqui, preservando o histórico de doações já entregues.
+  deletedAt         DateTime?
 
   organizationLinks OrganizationUser[]
   refreshTokens     RefreshToken[]
+  tokens            UserToken[]
   auditLogs         AuditLog[]
   notifications     Notification[]
   pickupsConfirmed  Pickup[]           @relation("PickupConfirmedBy")
@@ -42,6 +49,28 @@ model User {
   @@index([role])
   @@index([nodeId])
   @@map("users")
+}
+
+enum UserTokenPurpose {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+}
+
+// Uma tabela para os dois fluxos de token por e-mail: só muda o propósito e a
+// validade. Guarda o hash, nunca o token em si — quem tiver acesso de leitura
+// ao banco não consegue redefinir a senha de ninguém.
+model UserToken {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String           @unique
+  purpose   UserTokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, purpose])
+  @@map("user_tokens")
 }
 
 model RefreshToken {
@@ -103,31 +132,40 @@ enum OrganizationKind {
 }
 
 model Organization {
-  id                   String            @id @default(uuid())
-  kind                 OrganizationKind
-  legalName            String
-  tradeName            String
-  document             String? // CNPJ, opcional para ONGs informais
-  type                 OrganizationType?
-  phone                String
-  email                String
-  responsibleName      String
-  description          String?
-  operatingHours       String?
-  estimatedCapacity    Int? // capacidade aproximada de atendimento (ONG)
-  notificationRadiusKm Int? // ONG: raio (km) para alertas de doação próxima; null usa o padrão global
-  approvalStatus       ApprovalStatus    @default(PENDING)
-  nodeId               String
-  version              Int               @default(1)
-  addressId            String
-  address              Address           @relation(fields: [addressId], references: [id])
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  deletedAt            DateTime?
+  id                     String             @id @default(uuid())
+  kind                   OrganizationKind
+  legalName              String
+  tradeName              String
+  document               String? // CNPJ, opcional para ONGs informais
+  type                   OrganizationType?
+  phone                  String
+  email                  String
+  responsibleName        String
+  description            String?
+  operatingHours         String?
+  estimatedCapacity      Int? // capacidade aproximada de atendimento (ONG)
+  notificationRadiusKm   Int? // ONG: raio (km) para alertas de doação próxima; null usa o padrão global
+  // ONG: categorias de interesse. Vazio = recebe alerta de tudo (padrão). Sem
+  // isso, toda ONG era avisada de toda doação no raio e o alerta virava ruído.
+  notificationCategories DonationCategory[]
+  // Reputação: contadores mantidos pelo próprio fluxo (retirada confirmada x
+  // reserva abandonada), para que o outro lado consiga avaliar com quem está
+  // combinando uma retirada.
+  completedPickupCount   Int                @default(0)
+  noShowCount            Int                @default(0)
+  approvalStatus         ApprovalStatus     @default(PENDING)
+  nodeId                 String
+  version                Int                @default(1)
+  addressId              String
+  address                Address            @relation(fields: [addressId], references: [id])
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  deletedAt              DateTime?
 
   users         OrganizationUser[]
   donationLists DonationList[]     @relation("DonorOrganization")
   reservations  Reservation[]      @relation("NgoOrganization")
+  templates     DonationTemplate[]
 
   @@index([kind, approvalStatus])
   @@map("organizations")
@@ -200,6 +238,45 @@ model DonationList {
   @@map("donation_lists")
 }
 
+enum DonationRecurrence {
+  DAILY
+  WEEKDAYS
+  WEEKLY
+}
+
+/**
+ * Modelo de doação recorrente. Uma padaria com sobra todo dia tinha de
+ * recriar a mesma lista manualmente toda noite; aqui ela descreve a oferta uma
+ * vez e o agendador publica sozinho.
+ */
+model DonationTemplate {
+  id                  String             @id @default(uuid())
+  donorOrganizationId String
+  donorOrganization   Organization       @relation(fields: [donorOrganizationId], references: [id], onDelete: Cascade)
+  name                String
+  allowPartial        Boolean            @default(true)
+  notes               String?
+  // Itens congelados como JSON: é um molde, não entidades reserváveis — cada
+  // publicação gera DonationItems novos a partir daqui.
+  items               Json
+  recurrence          DonationRecurrence
+  // Hora do dia (0-23) em que a lista deve ser publicada.
+  hourOfDay           Int
+  // Para WEEKLY: dia da semana (0=domingo).
+  weekday             Int?
+  // Janela da oferta gerada, em horas a partir da publicação.
+  pickupWindowHours   Int                @default(4)
+  expiresInHours      Int                @default(8)
+  isActive            Boolean            @default(true)
+  lastGeneratedAt     DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@index([donorOrganizationId])
+  @@index([isActive])
+  @@map("donation_templates")
+}
+
 enum DonationItemStatus {
   AVAILABLE
   FULLY_RESERVED
@@ -222,6 +299,10 @@ model DonationItem {
   unit              String
   batch             String?
   storageCondition  String?
+  // Foto do alimento: ONG decide se vale a viagem antes de sair, e fica o
+  // registro do estado em que o item foi ofertado.
+  imageUrl          String?
+  allergens         String?
   status            DonationItemStatus @default(AVAILABLE)
   version           Int                @default(1)
   createdAt         DateTime           @default(now())

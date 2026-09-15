@@ -18,6 +18,20 @@ export default () => ({
   notifications: {
     radiusKm: parseInt(process.env.NOTIFICATION_RADIUS_KM ?? '50', 10),
   },
+  mail: {
+    // Sem MAIL_HOST o serviço cai no modo log — desenvolvimento não precisa de SMTP.
+    host: process.env.MAIL_HOST,
+    port: parseInt(process.env.MAIL_PORT ?? '587', 10),
+    secure: process.env.MAIL_SECURE === 'true',
+    user: process.env.MAIL_USER,
+    password: process.env.MAIL_PASSWORD,
+    from: process.env.MAIL_FROM ?? 'FoodShare <nao-responda@foodshare.local>',
+  },
+  webAppUrl: process.env.WEB_APP_URL ?? process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  uploads: {
+    dir: process.env.UPLOADS_DIR ?? 'uploads',
+    maxFileSizeBytes: parseInt(process.env.UPLOADS_MAX_BYTES ?? '5242880', 10),
+  },
   retention: {
     auditLogDays: parseInt(process.env.AUDIT_LOG_RETENTION_DAYS ?? '180', 10),
     syncEventDays: parseInt(process.env.SYNC_EVENT_RETENTION_DAYS ?? '30', 10),

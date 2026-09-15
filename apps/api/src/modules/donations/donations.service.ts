@@ -20,6 +20,7 @@ import { QueryDonationsDto } from './dto/query-donations.dto';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { recomputeDonationListStatus } from './donation-list-status';
 
 const EDITABLE_STATUSES: DonationListStatus[] = [DonationListStatus.OPEN];
 
@@ -55,6 +56,8 @@ export class DonationsService {
             unit: item.unit,
             batch: item.batch,
             storageCondition: item.storageCondition,
+            imageUrl: item.imageUrl,
+            allergens: item.allergens,
           })),
         },
       },
@@ -186,19 +189,40 @@ export class DonationsService {
     return updated;
   }
 
+  /**
+   * Cancela o que ainda não foi reservado. Se ninguém tinha reservado nada, a
+   * lista inteira é cancelada; se já havia reserva, só o saldo disponível sai
+   * do ar e os compromissos assumidos com as ONGs são preservados — antes o
+   * doador com a cozinha fechando simplesmente não tinha como retirar o
+   * restante da oferta.
+   */
   async cancel(user: AuthenticatedUser, id: string) {
-    const donationList = await this.getOwnedEditableDonationList(user, id);
+    const donationList = await this.getOwnedEditableDonationList(user, id, { allowPartiallyReserved: true });
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.donationList.update({
-        where: { id: donationList.id },
-        data: { status: DonationListStatus.CANCELLED, version: { increment: 1 } },
-      }),
-      this.prisma.donationItem.updateMany({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.donationItem.updateMany({
         where: { donationListId: donationList.id, status: DonationItemStatus.AVAILABLE },
         data: { status: DonationItemStatus.CANCELLED },
-      }),
-    ]);
+      });
+
+      const hasActiveReservations =
+        (await tx.reservation.count({
+          where: { donationListId: donationList.id, status: 'ACTIVE' },
+        })) > 0;
+
+      if (hasActiveReservations) {
+        // Ainda há retirada pendente: o estado correto é "tudo comprometido",
+        // não "cancelada".
+        return recomputeDonationListStatus(tx, donationList.id).then(() =>
+          tx.donationList.findUniqueOrThrow({ where: { id: donationList.id } }),
+        );
+      }
+
+      return tx.donationList.update({
+        where: { id: donationList.id },
+        data: { status: DonationListStatus.CANCELLED, version: { increment: 1 } },
+      });
+    });
 
     await this.auditLogService.record({
       entity: 'DonationList',
@@ -216,7 +240,11 @@ export class DonationsService {
     return updated;
   }
 
-  private async getOwnedEditableDonationList(user: AuthenticatedUser, id: string) {
+  private async getOwnedEditableDonationList(
+    user: AuthenticatedUser,
+    id: string,
+    options: { allowPartiallyReserved?: boolean } = {},
+  ) {
     const donationList = await this.prisma.donationList.findFirst({
       where: { id, deletedAt: null },
       include: { items: true },
@@ -240,10 +268,12 @@ export class DonationsService {
       });
     }
 
-    const anyItemAlreadyReserved = donationList.items.some(
-      (item) => item.remainingQuantity < item.quantity,
+    const anyItemAlreadyReserved = donationList.items.some((item) =>
+      item.remainingQuantity.lessThan(item.quantity),
     );
-    if (anyItemAlreadyReserved) {
+    // Alterar datas de uma lista já reservada mudaria o combinado com quem
+    // reservou; cancelar o saldo, não — por isso só o cancelamento passa aqui.
+    if (anyItemAlreadyReserved && !options.allowPartiallyReserved) {
       throw new BadRequestException({
         code: 'DONATION_PARTIALLY_RESERVED',
         message: 'Esta lista já possui itens reservados e não pode mais ser alterada ou cancelada por inteiro.',

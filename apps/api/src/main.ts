@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -10,11 +12,13 @@ import { DecimalSerializerInterceptor } from './common/interceptors/decimal-seri
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
   const config = app.get(ConfigService);
 
-  app.use(helmet());
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  // Fotos dos alimentos: servidas estaticamente a partir do volume de uploads.
+  app.useStaticAssets(join(process.cwd(), config.get<string>('uploads.dir')!), { prefix: '/uploads/' });
   app.enableCors({ origin: config.get<string>('corsOrigin'), credentials: true });
   app.useWebSocketAdapter(new RedisIoAdapter(app, config.get<string>('redisUrl')!));
   app.useGlobalPipes(

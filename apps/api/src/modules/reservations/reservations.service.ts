@@ -315,6 +315,10 @@ export class ReservationsService {
         where: { id: reservation.id },
         data: { status: ReservationStatus.COMPLETED },
       });
+      await tx.organization.updateMany({
+        where: { id: { in: [reservation.ngoOrganizationId, reservation.donationList.donorOrganizationId] } },
+        data: { completedPickupCount: { increment: 1 } },
+      });
 
       await recomputeDonationListStatus(tx, reservation.donationListId);
 
@@ -383,6 +387,12 @@ export class ReservationsService {
       await tx.reservation.update({
         where: { id: reservation.id },
         data: { status: ReservationStatus.EXPIRED },
+      });
+      // Reserva que segurou comida e não foi retirada conta contra a ONG: é o
+      // que permite ao doador enxergar com quem está combinando.
+      await tx.organization.update({
+        where: { id: current.ngoOrganizationId },
+        data: { noShowCount: { increment: 1 } },
       });
       await this.releaseReservationItems(tx, reservation.donationListId, reservation.items);
       await recomputeDonationListStatus(tx, reservation.donationListId);

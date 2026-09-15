@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { User } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { AccountRecoveryService } from './account-recovery.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { parseDurationMs } from '../../common/parse-duration';
@@ -20,11 +21,14 @@ interface RefreshPayload {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly accountRecovery: AccountRecoveryService,
   ) {}
 
   async checkEmailAvailability(email: string) {
@@ -50,12 +54,23 @@ export class AuthService {
       nodeId: this.config.get<string>('node.id')!,
     });
 
+    // Envio em best-effort: um problema no e-mail não pode impedir o cadastro
+    // (o usuário pode reenviar a confirmação depois).
+    this.accountRecovery
+      .sendVerificationEmail(user.id)
+      .catch((err) => this.logger.warn(`Falha ao enviar verificação para ${user.email}: ${err.message}`));
+
     return this.issueTokens(user);
   }
 
   async login(dto: LoginDto) {
     const user = await this.usersService.findByEmail(dto.email);
-    if (!user || !user.isActive) {
+    if (user && user.isActive && !user.deletedAt && user.deactivatedReason) {
+      // Bloqueio administrativo: o usuário merece saber o motivo em vez de
+      // receber "credenciais inválidas" e achar que errou a senha.
+      throw new UnauthorizedException({ code: 'ACCOUNT_BLOCKED', message: user.deactivatedReason });
+    }
+    if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'E-mail ou senha inválidos.',

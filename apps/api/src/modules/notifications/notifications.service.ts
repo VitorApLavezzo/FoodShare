@@ -1,9 +1,16 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApprovalStatus, DonationList, NotificationType, OrganizationKind } from '@prisma/client';
+import {
+  ApprovalStatus,
+  DonationCategory,
+  DonationList,
+  NotificationType,
+  OrganizationKind,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { haversineKm } from '../../common/geo';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { MailService } from '../mail/mail.service';
 
 const MAX_CANDIDATES = 500;
 
@@ -14,22 +21,31 @@ export class NotificationsService {
     private readonly config: ConfigService,
     @Inject(forwardRef(() => RealtimeGateway))
     private readonly realtimeGateway: RealtimeGateway,
+    private readonly mail: MailService,
   ) {}
 
   /**
    * Alerta ONGs aprovadas dentro do raio da doação recém-publicada. Cada ONG
-   * pode definir seu próprio raio (Organization.notificationRadiusKm); quando
-   * não definido, usa o padrão global (env NOTIFICATION_RADIUS_KM, 50km).
-   * Sem filtro de categoria nesta fase: qualquer alimento disponibilizado
-   * gera alerta para quem está no raio.
+   * define seu próprio raio (Organization.notificationRadiusKm, caindo no
+   * padrão global) e, opcionalmente, as categorias que lhe interessam — sem
+   * esse filtro toda ONG recebia alerta de tudo e o sino virava ruído.
+   *
+   * O alerta sai por três canais: registro no banco (histórico), WebSocket
+   * (quem está com a aba aberta vê na hora) e e-mail — este último é o que
+   * alcança quem não está olhando o sistema, que é a maioria dos casos numa
+   * janela de poucas horas.
    */
-  async notifyNearbyNgos(donationList: DonationList, donorAddressId: string) {
+  async notifyNearbyNgos(
+    donationList: DonationList & { items?: { category: DonationCategory; foodName: string }[] },
+    donorAddressId: string,
+  ) {
     const donorAddress = await this.prisma.address.findUniqueOrThrow({ where: { id: donorAddressId } });
     const defaultRadiusKm = this.config.get<number>('notifications.radiusKm') ?? 50;
+    const categories = donationList.items?.map((i) => i.category) ?? [];
 
     const ngoOrganizations = await this.prisma.organization.findMany({
       where: { kind: OrganizationKind.NGO, approvalStatus: ApprovalStatus.APPROVED, deletedAt: null },
-      include: { address: true, users: true },
+      include: { address: true, users: { include: { user: true } } },
       take: MAX_CANDIDATES,
     });
 
@@ -44,14 +60,17 @@ export class NotificationsService {
           org.address.longitude,
         ),
       }))
-      .filter(({ distanceKm, radiusKm }) => distanceKm <= radiusKm);
+      .filter(({ distanceKm, radiusKm }) => distanceKm <= radiusKm)
+      .filter(({ org }) => this.matchesCategories(org.notificationCategories, categories));
 
     const title = 'Nova doação disponível perto de você';
-    const notifications = nearby.flatMap(({ org, radiusKm }) =>
-      org.users.map((u) => ({
-        userId: u.userId,
+    const notifications = nearby.flatMap(({ org, radiusKm, distanceKm }) =>
+      org.users.map((link) => ({
+        userId: link.userId,
+        email: link.user?.email,
+        emailVerified: !!link.user?.emailVerifiedAt,
         title,
-        message: `Uma nova lista de doação foi publicada a menos de ${radiusKm}km da sua ONG.`,
+        message: `Uma nova lista de doação foi publicada a ${Math.round(distanceKm)}km da sua ONG (seu raio é de ${radiusKm}km).`,
       })),
     );
     if (notifications.length === 0) return;
@@ -66,6 +85,9 @@ export class NotificationsService {
       })),
     });
 
+    const link = `${this.config.get<string>('webAppUrl')}/doacoes/${donationList.id}`;
+    const itemNames = donationList.items?.map((i) => i.foodName).join(', ') ?? '';
+
     for (const n of notifications) {
       this.realtimeGateway.emitToUser(n.userId, 'notification:new', {
         type: NotificationType.NEW_DONATION_NEARBY,
@@ -73,7 +95,23 @@ export class NotificationsService {
         message: n.message,
         donationListId: donationList.id,
       });
+
+      // Só para e-mail confirmado: evita disparar mensagem para endereço
+      // digitado errado no cadastro.
+      if (n.email && n.emailVerified) {
+        void this.mail.send({
+          to: n.email,
+          subject: title,
+          text: `${n.message}\n\n${itemNames ? `Itens: ${itemNames}\n\n` : ''}Veja os detalhes e reserve em:\n${link}`,
+        });
+      }
     }
+  }
+
+  /** Sem preferência declarada, a ONG recebe tudo (padrão). */
+  private matchesCategories(preferred: DonationCategory[], donationCategories: DonationCategory[]) {
+    if (preferred.length === 0 || donationCategories.length === 0) return true;
+    return donationCategories.some((category) => preferred.includes(category));
   }
 
   async findMany(userId: string, params: { page?: number; limit?: number; unreadOnly?: boolean }) {

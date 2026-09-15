@@ -23,10 +23,14 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { RedisModule } from './redis/redis.module';
+import { MailModule } from './modules/mail/mail.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { CnpjModule } from './modules/cnpj/cnpj.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -50,6 +54,7 @@ import { CnpjModule } from './modules/cnpj/cnpj.module';
     ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
+    MailModule,
     HealthModule,
     NodesModule,
     UsersModule,
@@ -66,6 +71,9 @@ import { CnpjModule } from './modules/cnpj/cnpj.module';
     ChatModule,
     NotificationsModule,
     CnpjModule,
+    UploadsModule,
+    TemplatesModule,
+    AdminModule,
   ],
   providers: [
     // Ordem importa: rate limit primeiro, depois autenticação, depois autorização por papel.

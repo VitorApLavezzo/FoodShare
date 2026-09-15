@@ -10,13 +10,24 @@ describe('NotificationsService - raio de proximidade', () => {
   const perto = { latitude: -22.6, longitude: -47.4 };
   const longe = { latitude: -23.3, longitude: -47.4 };
 
-  function buildService(ngos: { id: string; notificationRadiusKm: number | null; address: object }[]) {
+  function buildService(
+    ngos: {
+      id: string;
+      notificationRadiusKm: number | null;
+      address: object;
+      notificationCategories?: string[];
+    }[],
+  ) {
     const created: { userId: string }[] = [];
     const prisma = {
       address: { findUniqueOrThrow: jest.fn().mockResolvedValue(donorAddress) },
       organization: {
         findMany: jest.fn().mockResolvedValue(
-          ngos.map((n) => ({ ...n, users: [{ userId: `user-${n.id}` }] })),
+          ngos.map((n) => ({
+            ...n,
+            notificationCategories: n.notificationCategories ?? [],
+            users: [{ userId: `user-${n.id}`, user: { email: `${n.id}@t.com`, emailVerifiedAt: new Date() } }],
+          })),
         ),
       },
       notification: {
@@ -26,13 +37,22 @@ describe('NotificationsService - raio de proximidade', () => {
         }),
       },
     };
-    const config = { get: jest.fn().mockReturnValue(50) };
+    const config = { get: jest.fn((key: string) => (key === 'notifications.radiusKm' ? 50 : 'http://web.test')) };
     const gateway = { emitToUser: jest.fn() };
-    const service = new NotificationsService(prisma as never, config as never, gateway as never);
-    return { service, created, gateway };
+    const mail = { send: jest.fn().mockResolvedValue(true) };
+    const service = new NotificationsService(
+      prisma as never,
+      config as never,
+      gateway as never,
+      mail as never,
+    );
+    return { service, created, gateway, mail };
   }
 
-  const donationList = { id: 'list-1' } as never;
+  const donationList = {
+    id: 'list-1',
+    items: [{ category: 'FRUITS', foodName: 'Banana' }],
+  } as never;
 
   it('avisa a ONG dentro do raio padrão', async () => {
     const { service, created, gateway } = buildService([
@@ -65,5 +85,29 @@ describe('NotificationsService - raio de proximidade', () => {
     const { service, gateway } = buildService([{ id: 'longe', notificationRadiusKm: null, address: longe }]);
     await service.notifyNearbyNgos(donationList, 'addr-1');
     expect(gateway.emitToUser).not.toHaveBeenCalled();
+  });
+
+  it('respeita as categorias de interesse da ONG', async () => {
+    const { service, created } = buildService([
+      { id: 'so-padaria', notificationRadiusKm: null, address: perto, notificationCategories: ['BAKERY'] },
+    ]);
+    await service.notifyNearbyNgos(donationList, 'addr-1'); // doação é FRUITS
+    expect(created).toHaveLength(0);
+  });
+
+  it('sem categorias declaradas, a ONG recebe alerta de qualquer alimento', async () => {
+    const { service, created } = buildService([
+      { id: 'tudo', notificationRadiusKm: null, address: perto, notificationCategories: [] },
+    ]);
+    await service.notifyNearbyNgos(donationList, 'addr-1');
+    expect(created).toHaveLength(1);
+  });
+
+  it('envia e-mail para quem já confirmou o endereço', async () => {
+    const { service, mail } = buildService([{ id: 'perto', notificationRadiusKm: null, address: perto }]);
+    await service.notifyNearbyNgos(donationList, 'addr-1');
+    expect(mail.send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'perto@t.com', text: expect.stringContaining('/doacoes/list-1') }),
+    );
   });
 });

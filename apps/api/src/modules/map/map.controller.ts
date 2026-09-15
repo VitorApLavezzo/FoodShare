@@ -1,7 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { OrganizationKind } from '@prisma/client';
+import { OrganizationKind, UserRole } from '@prisma/client';
 import { MapService } from './map.service';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { MapDonationsQueryDto, MapOrganizationsQueryDto } from './dto/map-query.dto';
 
 @ApiTags('map')
@@ -16,8 +17,11 @@ export class MapController {
     return this.mapService.findOrganizations(OrganizationKind.DONOR, query);
   }
 
+  // Endereço exato de ONG não é dado público da plataforma: um doador não
+  // precisa enumerar a localização de todas elas.
   @Get('ngos')
-  @ApiOperation({ summary: 'ONGs aprovadas com localização, para exibição no mapa.' })
+  @Roles(UserRole.NGO, UserRole.ADMIN)
+  @ApiOperation({ summary: 'ONGs aprovadas com localização (visível para ONGs e administração).' })
   findNgos(@Query() query: MapOrganizationsQueryDto) {
     return this.mapService.findOrganizations(OrganizationKind.NGO, query);
   }

@@ -160,6 +160,10 @@ export class ReservationsService {
         donationList.id,
       );
 
+      // Evento no outbox dentro da mesma transação: se o processo cair entre o
+      // commit e a publicação, o cron de reenvio ainda encontra a linha.
+      await this.syncService.publishEvent('DONATION_RESERVED', donationList.id, reservation, tx);
+
       return { reservation, conversation, donorOrganizationId: donationList.donorOrganizationId };
     });
 
@@ -188,7 +192,6 @@ export class ReservationsService {
         nodeId: user.nodeId,
         newData: reservation,
       });
-      await this.syncService.publishEvent('DONATION_RESERVED', reservation.donationListId, reservation);
       this.chatService.notifyConversationCreated({
         conversationId: conversation.id,
         reservationId: reservation.id,

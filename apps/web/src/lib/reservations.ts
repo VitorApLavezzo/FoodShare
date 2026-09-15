@@ -1,7 +1,8 @@
 import { api } from './api';
 import type { DonationList } from './donations';
 
-export type ReservationStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED' | 'EXPIRED';
+import type { ReservationStatus } from '@foodshare/types';
+export type { ReservationStatus };
 
 export interface ReservationItem {
   id: string;

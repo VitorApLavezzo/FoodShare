@@ -356,7 +356,10 @@ model SyncEvent {
   id            String          @id @default(uuid())
   eventId       String          @unique // uuid global, usado para idempotência
   originNode    String
-  sequence      BigInt
+  // autoincrement do banco: antes a sequência vinha de um count() da tabela
+  // inteira a cada publicação — custo crescente e sujeito a corrida (duas
+  // publicações simultâneas recebiam o mesmo número).
+  sequence      BigInt          @default(autoincrement())
   eventType     String
   entityId      String
   payload       Json

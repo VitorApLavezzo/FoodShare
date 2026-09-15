@@ -1,18 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsIn, IsOptional, IsString } from 'class-validator';
-
-const CATEGORIES = [
-  'PREPARED_MEALS',
-  'FRUITS',
-  'VEGETABLES',
-  'LEGUMES',
-  'PACKAGED_GOODS',
-  'BAKERY',
-  'BEVERAGES',
-  'OTHER',
-] as const;
-
-const STATUSES = ['AVAILABLE', 'FULLY_RESERVED', 'CANCELLED'] as const;
+import { DonationCategory, DonationItemStatus } from '@prisma/client';
+import { DONATION_CATEGORIES, DONATION_ITEM_STATUSES } from '../../../common/enum-values';
 
 const FORMATS = ['json', 'csv'] as const;
 
@@ -42,15 +31,15 @@ export class ReportQueryDto {
   @IsString()
   ngoOrganizationId?: string;
 
-  @ApiPropertyOptional({ enum: CATEGORIES })
+  @ApiPropertyOptional({ enum: DONATION_CATEGORIES })
   @IsOptional()
-  @IsIn(CATEGORIES)
-  category?: (typeof CATEGORIES)[number];
+  @IsIn(DONATION_CATEGORIES)
+  category?: DonationCategory;
 
-  @ApiPropertyOptional({ enum: STATUSES })
+  @ApiPropertyOptional({ enum: DONATION_ITEM_STATUSES })
   @IsOptional()
-  @IsIn(STATUSES)
-  status?: (typeof STATUSES)[number];
+  @IsIn(DONATION_ITEM_STATUSES)
+  status?: DonationItemStatus;
 
   @ApiPropertyOptional({ enum: FORMATS, default: 'json' })
   @IsOptional()

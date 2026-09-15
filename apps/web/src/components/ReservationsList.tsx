@@ -1,18 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '@foodshare/types';
 import { cancelReservation, fetchReservations, type Reservation } from '../lib/reservations';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
 import { ChatPanel } from './ChatPanel';
 import { QueryState } from './ui/QueryState';
 import { useAuth } from '../context/AuthContext';
-
-const STATUS_LABEL: Record<Reservation['status'], string> = {
-  ACTIVE: 'Ativa',
-  CANCELLED: 'Cancelada',
-  COMPLETED: 'Concluída',
-  EXPIRED: 'Não retirada',
-};
 
 const STATUS_BADGE: Record<Reservation['status'], string> = {
   ACTIVE: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-400',

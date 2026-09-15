@@ -1,17 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsLatitude, IsLongitude, IsNumber, IsOptional, IsPositive, Min } from 'class-validator';
-
-const CATEGORIES = [
-  'PREPARED_MEALS',
-  'FRUITS',
-  'VEGETABLES',
-  'LEGUMES',
-  'PACKAGED_GOODS',
-  'BAKERY',
-  'BEVERAGES',
-  'OTHER',
-] as const;
+import { DonationCategory } from '@prisma/client';
+import { DONATION_CATEGORIES } from '../../../common/enum-values';
 
 export class MapDonationsQueryDto {
   @ApiPropertyOptional({ description: 'Latitude do ponto de referência (ex: localização da ONG).' })
@@ -33,10 +24,10 @@ export class MapDonationsQueryDto {
   @IsPositive()
   radiusKm?: number;
 
-  @ApiPropertyOptional({ enum: CATEGORIES })
+  @ApiPropertyOptional({ enum: DONATION_CATEGORIES })
   @IsOptional()
-  @IsIn(CATEGORIES)
-  category?: (typeof CATEGORIES)[number];
+  @IsIn(DONATION_CATEGORIES)
+  category?: DonationCategory;
 
   @ApiPropertyOptional({ description: 'Quantidade mínima.' })
   @IsOptional()

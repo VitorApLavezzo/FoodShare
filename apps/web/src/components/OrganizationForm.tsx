@@ -1,4 +1,9 @@
 import { useState, type FocusEvent } from 'react';
+import {
+  ORGANIZATION_TYPES,
+  ORGANIZATION_TYPE_LABEL,
+  type OrganizationType,
+} from '@foodshare/types';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -18,7 +23,7 @@ const schema = z.object({
   legalName: z.string().min(2, 'Informe a razão social.'),
   tradeName: z.string().min(2, 'Informe o nome fantasia.'),
   document: z.string().min(1, 'Informe o CNPJ.').refine(isValidCnpj, 'CNPJ inválido.'),
-  type: z.enum(['RESTAURANT', 'MARKET', 'BAKERY', 'OTHER']).optional(),
+  type: z.enum(ORGANIZATION_TYPES as [OrganizationType, ...OrganizationType[]]).optional(),
   phone: z.string().min(8, 'Informe um telefone válido.'),
   email: z.string().email('Informe um e-mail válido.'),
   responsibleName: z.string().min(2, 'Informe o responsável.'),
@@ -195,10 +200,11 @@ export function OrganizationForm({
         })()}
         {kind === 'DONOR' ? (
           <SelectField label="Tipo de estabelecimento" {...register('type')}>
-            <option value="RESTAURANT">Restaurante</option>
-            <option value="MARKET">Mercado</option>
-            <option value="BAKERY">Padaria</option>
-            <option value="OTHER">Outro</option>
+            {Object.entries(ORGANIZATION_TYPE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </SelectField>
         ) : (
           <InputField

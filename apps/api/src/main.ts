@@ -3,13 +3,15 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { DecimalSerializerInterceptor } from './common/interceptors/decimal-serializer.interceptor';
-import { RedisIoAdapter } from './realtime/redis-io.adapter';
+import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
   const config = app.get(ConfigService);
 
   app.use(helmet());
@@ -36,9 +38,8 @@ async function bootstrap() {
 
   const port = config.get<number>('port') ?? 3000;
   await app.listen(port, '0.0.0.0');
-  // eslint-disable-next-line no-console
-  console.log(`FoodShare API [node=${config.get('node.id')}] rodando em http://localhost:${port}`);
-  // eslint-disable-next-line no-console
-  console.log(`Swagger docs em http://localhost:${port}/docs`);
+  const logger = app.get(Logger);
+  logger.log(`FoodShare API [node=${config.get('node.id')}] rodando em http://localhost:${port}`);
+  logger.log(`Swagger docs em http://localhost:${port}/docs`);
 }
 bootstrap();

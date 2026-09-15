@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { APPROVAL_STATUS_LABEL as APPROVAL_LABEL } from '@foodshare/types';
 import { useAuth } from '../context/AuthContext';
 import { fetchMyOrganization, type Organization } from '../lib/organizations';
 import { OrganizationForm } from '../components/OrganizationForm';
@@ -19,13 +20,6 @@ import { AuditLogList } from '../components/dashboard/AuditLogList';
 import { NodesSyncPanel } from '../components/dashboard/NodesSyncPanel';
 import { AppHeader } from '../components/layout/AppHeader';
 import { Button } from '../components/ui/Button';
-
-const APPROVAL_LABEL: Record<Organization['approvalStatus'], string> = {
-  PENDING: 'Aguardando aprovação',
-  APPROVED: 'Aprovado',
-  REJECTED: 'Reprovado',
-  BLOCKED: 'Bloqueado',
-};
 
 const APPROVAL_BADGE: Record<Organization['approvalStatus'], string> = {
   PENDING: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400',

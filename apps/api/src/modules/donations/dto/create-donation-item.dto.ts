@@ -1,17 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { DonationCategory } from '@prisma/client';
 import { IsIn, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
-
-export const DONATION_CATEGORIES = [
-  'PREPARED_MEALS',
-  'FRUITS',
-  'VEGETABLES',
-  'LEGUMES',
-  'PACKAGED_GOODS',
-  'BAKERY',
-  'BEVERAGES',
-  'OTHER',
-] as const;
+import { DONATION_CATEGORIES } from '../../../common/enum-values';
 
 export class CreateDonationItemDto {
   @ApiProperty()

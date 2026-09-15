@@ -2,21 +2,19 @@ import { useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { createDonation, type CreateDonationListInput, type DonationList } from '../lib/donations';
+import { DONATION_CATEGORIES, type DonationCategory } from '@foodshare/types';
+import {
+  CATEGORY_LABEL,
+  createDonation,
+  type CreateDonationListInput,
+  type DonationList,
+} from '../lib/donations';
 import { getApiErrorMessage } from '../lib/api';
 
 const itemSchema = z.object({
   foodName: z.string().min(2, 'Informe o nome do alimento.'),
-  category: z.enum([
-    'PREPARED_MEALS',
-    'FRUITS',
-    'VEGETABLES',
-    'LEGUMES',
-    'PACKAGED_GOODS',
-    'BAKERY',
-    'BEVERAGES',
-    'OTHER',
-  ]),
+  // Derivado da lista compartilhada: adicionar categoria não exige mexer aqui.
+  category: z.enum(DONATION_CATEGORIES as [DonationCategory, ...DonationCategory[]]),
   description: z.string().optional(),
   quantity: z.coerce.number().positive('A quantidade deve ser maior que zero.'),
   unit: z.string().min(1, 'Informe a unidade (kg, un, L...).'),
@@ -103,14 +101,11 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
               <div>
                 <label className={labelClass}>Categoria</label>
                 <select className={inputClass} {...register(`items.${index}.category`)}>
-                  <option value="PREPARED_MEALS">Alimentos preparados</option>
-                  <option value="FRUITS">Frutas</option>
-                  <option value="VEGETABLES">Verduras</option>
-                  <option value="LEGUMES">Legumes</option>
-                  <option value="PACKAGED_GOODS">Produtos industrializados</option>
-                  <option value="BAKERY">Padaria</option>
-                  <option value="BEVERAGES">Bebidas</option>
-                  <option value="OTHER">Outros</option>
+                  {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

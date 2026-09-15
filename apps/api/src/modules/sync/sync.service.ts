@@ -3,8 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Redis from 'ioredis';
 import { randomUUID } from 'crypto';
-import { SyncEventStatus } from '@prisma/client';
+import { Prisma, SyncEventStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { requestContext } from '../../common/request-context';
 
 const STREAM_KEY = 'foodshare:sync-stream';
 const CURSOR_KEY_PREFIX = 'foodshare:sync-cursor:';
@@ -76,20 +77,36 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     await this.reader.quit().catch(() => undefined);
   }
 
-  async publishEvent(eventType: string, entityId: string, payload: unknown) {
-    const sequence = await this.prisma.syncEvent.count({ where: { originNode: this.nodeId } });
-
-    const event = await this.prisma.syncEvent.create({
+  /**
+   * Grava o evento no outbox (tabela SyncEvent) e tenta entregá-lo ao stream em
+   * seguida. A gravação pode participar da transação de negócio: passando `tx`,
+   * o evento é commitado junto com a mudança que o originou — é o que garante
+   * que nenhuma alteração fique sem evento se o processo cair no meio. A
+   * entrega em si é feita fora da transação; se falhar, o cron de reenvio
+   * encontra a linha PENDING/FAILED e tenta de novo.
+   */
+  async publishEvent(
+    eventType: string,
+    entityId: string,
+    payload: unknown,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? this.prisma;
+    const event = await client.syncEvent.create({
       data: {
         eventId: randomUUID(),
         originNode: this.nodeId,
-        sequence: BigInt(sequence + 1),
         eventType,
         entityId,
         payload: payload as object,
         status: SyncEventStatus.PENDING,
+        correlationId: requestContext.getCorrelationId(),
       },
     });
+
+    // Dentro de uma transação a entrega é adiada: publicar antes do commit
+    // anunciaria uma mudança que ainda pode ser desfeita por um rollback.
+    if (tx) return;
 
     await this.attemptDelivery(event.id, event.eventId, {
       eventId: event.eventId,

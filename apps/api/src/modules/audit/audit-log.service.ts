@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { requestContext } from '../../common/request-context';
 
 export interface RecordAuditLogInput {
   entity: string;
@@ -36,7 +37,9 @@ export class AuditLogService {
           donationListId: input.donationListId,
           previousData: (input.previousData ?? undefined) as Prisma.InputJsonValue,
           newData: (input.newData ?? undefined) as Prisma.InputJsonValue,
-          correlationId: input.correlationId,
+          // Cai para o ID da requisição em curso quando o chamador não informa —
+          // na prática nenhum informava, e a coluna vivia nula.
+          correlationId: input.correlationId ?? requestContext.getCorrelationId(),
         },
       });
     } catch (err) {

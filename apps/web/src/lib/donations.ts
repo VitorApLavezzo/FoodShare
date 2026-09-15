@@ -1,17 +1,20 @@
+import {
+  DONATION_CATEGORY_LABEL,
+  DONATION_ITEM_STATUS_LABEL,
+  DONATION_LIST_STATUS_LABEL,
+  type DonationCategory,
+  type DonationItemStatus,
+  type DonationListStatus,
+} from '@foodshare/types';
 import { api } from './api';
 
-export type DonationCategory =
-  | 'PREPARED_MEALS'
-  | 'FRUITS'
-  | 'VEGETABLES'
-  | 'LEGUMES'
-  | 'PACKAGED_GOODS'
-  | 'BAKERY'
-  | 'BEVERAGES'
-  | 'OTHER';
-
-export type DonationListStatus = 'OPEN' | 'FULLY_RESERVED' | 'CANCELLED' | 'CLOSED' | 'EXPIRED';
-export type DonationItemStatus = 'AVAILABLE' | 'FULLY_RESERVED' | 'CANCELLED' | 'EXPIRED';
+// Reexporta para os componentes não precisarem saber de onde vêm os enums.
+export {
+  DONATION_CATEGORY_LABEL as CATEGORY_LABEL,
+  DONATION_ITEM_STATUS_LABEL,
+  DONATION_LIST_STATUS_LABEL,
+};
+export type { DonationCategory, DonationItemStatus, DonationListStatus };
 
 export interface DonationItem {
   id: string;
@@ -94,28 +97,3 @@ export async function cancelDonation(id: string) {
   return data;
 }
 
-export const CATEGORY_LABEL: Record<DonationCategory, string> = {
-  PREPARED_MEALS: 'Alimentos preparados',
-  FRUITS: 'Frutas',
-  VEGETABLES: 'Verduras',
-  LEGUMES: 'Legumes',
-  PACKAGED_GOODS: 'Produtos industrializados',
-  BAKERY: 'Padaria',
-  BEVERAGES: 'Bebidas',
-  OTHER: 'Outros',
-};
-
-export const DONATION_LIST_STATUS_LABEL: Record<DonationListStatus, string> = {
-  OPEN: 'Disponível',
-  FULLY_RESERVED: 'Totalmente reservada',
-  CANCELLED: 'Cancelada',
-  CLOSED: 'Encerrada',
-  EXPIRED: 'Expirada',
-};
-
-export const DONATION_ITEM_STATUS_LABEL: Record<DonationItemStatus, string> = {
-  AVAILABLE: 'Disponível',
-  FULLY_RESERVED: 'Reservado',
-  CANCELLED: 'Cancelado',
-  EXPIRED: 'Expirado',
-};

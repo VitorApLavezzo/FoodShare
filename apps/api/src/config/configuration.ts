@@ -18,6 +18,10 @@ export default () => ({
   notifications: {
     radiusKm: parseInt(process.env.NOTIFICATION_RADIUS_KM ?? '50', 10),
   },
+  retention: {
+    auditLogDays: parseInt(process.env.AUDIT_LOG_RETENTION_DAYS ?? '180', 10),
+    syncEventDays: parseInt(process.env.SYNC_EVENT_RETENTION_DAYS ?? '30', 10),
+  },
   reservations: {
     // Tolerância após o prazo de retirada antes de liberar a reserva abandonada.
     pickupGraceMinutes: parseInt(process.env.RESERVATION_PICKUP_GRACE_MINUTES ?? '120', 10),

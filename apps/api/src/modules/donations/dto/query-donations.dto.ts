@@ -1,13 +1,14 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { DONATION_CATEGORIES } from './create-donation-item.dto';
+import { DonationCategory } from '@prisma/client';
+import { DONATION_CATEGORIES } from '../../../common/enum-values';
 
 export class QueryDonationsDto {
   @ApiPropertyOptional({ enum: DONATION_CATEGORIES, description: 'Filtra listas que contenham algum item dessa categoria.' })
   @IsOptional()
   @IsIn(DONATION_CATEGORIES)
-  category?: (typeof DONATION_CATEGORIES)[number];
+  category?: DonationCategory;
 
   @ApiPropertyOptional({ description: 'Busca por nome de alimento em algum item da lista.' })
   @IsOptional()

@@ -2,6 +2,7 @@ import { Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { QueryNotificationsDto } from './dto/query-notifications.dto';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
@@ -11,17 +12,8 @@ export class NotificationsController {
 
   @Get()
   @ApiOperation({ summary: 'Lista as notificações do usuário atual.' })
-  findAll(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('unreadOnly') unreadOnly?: string,
-  ) {
-    return this.notificationsService.findMany(user.id, {
-      page: page ? parseInt(page, 10) : undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      unreadOnly: unreadOnly === 'true',
-    });
+  findAll(@CurrentUser() user: AuthenticatedUser, @Query() query: QueryNotificationsDto) {
+    return this.notificationsService.findMany(user.id, query);
   }
 
   @Patch(':id/read')

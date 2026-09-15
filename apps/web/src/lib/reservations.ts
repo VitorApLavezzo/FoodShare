@@ -1,7 +1,7 @@
 import { api } from './api';
 import type { DonationList } from './donations';
 
-export type ReservationStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED';
+export type ReservationStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED' | 'EXPIRED';
 
 export interface ReservationItem {
   id: string;

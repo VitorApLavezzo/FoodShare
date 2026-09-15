@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { fetchMyOrganization, type Organization } from '../lib/organizations';
@@ -6,9 +6,15 @@ import { OrganizationForm } from '../components/OrganizationForm';
 import { DonationForm } from '../components/DonationForm';
 import { DonationsList } from '../components/DonationsList';
 import { ReservationsList } from '../components/ReservationsList';
-import { DonorMetrics } from '../components/dashboard/DonorMetrics';
-import { NgoMetrics } from '../components/dashboard/NgoMetrics';
-import { AdminMetrics } from '../components/dashboard/AdminMetrics';
+// Os gráficos (recharts) são a dependência mais pesada da tela e ficam abaixo
+// do conteúdo principal — carregar sob demanda encurta o primeiro render.
+const DonorMetrics = lazy(() =>
+  import('../components/dashboard/DonorMetrics').then((m) => ({ default: m.DonorMetrics })),
+);
+const NgoMetrics = lazy(() => import('../components/dashboard/NgoMetrics').then((m) => ({ default: m.NgoMetrics })));
+const AdminMetrics = lazy(() =>
+  import('../components/dashboard/AdminMetrics').then((m) => ({ default: m.AdminMetrics })),
+);
 import { AuditLogList } from '../components/dashboard/AuditLogList';
 import { NodesSyncPanel } from '../components/dashboard/NodesSyncPanel';
 import { AppHeader } from '../components/layout/AppHeader';
@@ -52,7 +58,9 @@ export function DashboardPage() {
 
         {user.role === 'ADMIN' && (
           <div className="mt-8">
-            <AdminMetrics />
+            <Suspense fallback={<p className="text-sm text-neutral-500">Carregando indicadores…</p>}>
+              <AdminMetrics />
+            </Suspense>
             <NodesSyncPanel />
             <AuditLogList />
           </div>
@@ -60,8 +68,11 @@ export function DashboardPage() {
 
         {(user.role === 'DONOR' || user.role === 'NGO') && (
           <div className="mt-8">
-            {organizationQuery.data?.approvalStatus === 'APPROVED' &&
-              (user.role === 'DONOR' ? <DonorMetrics /> : <NgoMetrics />)}
+            {organizationQuery.data?.approvalStatus === 'APPROVED' && (
+              <Suspense fallback={<p className="text-sm text-neutral-500">Carregando indicadores…</p>}>
+                {user.role === 'DONOR' ? <DonorMetrics /> : <NgoMetrics />}
+              </Suspense>
+            )}
 
             {organizationQuery.isLoading && <p className="text-sm text-neutral-500">Carregando cadastro…</p>}
 

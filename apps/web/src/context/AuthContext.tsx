@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { tokenStorage } from '../lib/token-storage';
+import { disconnectSocket } from '../lib/socket';
 
 export type UserRole = 'ADMIN' | 'DONOR' | 'NGO';
 
@@ -72,6 +73,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const refreshToken = tokenStorage.getRefreshToken();
     tokenStorage.clear();
+    // Sem isso o WebSocket do usuário anterior continuava vivo e autenticado
+    // depois do logout, recebendo notificações e mensagens dele.
+    disconnectSocket();
     setUser(null);
     if (refreshToken) {
       await api.post('/auth/logout', { refreshToken }).catch(() => undefined);

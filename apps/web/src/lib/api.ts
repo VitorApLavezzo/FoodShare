@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { tokenStorage } from './token-storage';
+import { ensureSocket } from './socket';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:3000',
@@ -33,6 +34,9 @@ async function refreshAccessToken(): Promise<string> {
   const response = await axios.post(`${api.defaults.baseURL}/auth/refresh`, { refreshToken });
   const { accessToken, refreshToken: newRefreshToken } = response.data;
   tokenStorage.setTokens(accessToken, newRefreshToken);
+  // O socket foi aberto com o token antigo: reconecta com o novo, senão o
+  // tempo real morre silenciosamente a cada renovação de sessão.
+  ensureSocket();
   return accessToken;
 }
 

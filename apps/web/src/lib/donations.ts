@@ -10,8 +10,8 @@ export type DonationCategory =
   | 'BEVERAGES'
   | 'OTHER';
 
-export type DonationListStatus = 'OPEN' | 'FULLY_RESERVED' | 'CANCELLED' | 'CLOSED';
-export type DonationItemStatus = 'AVAILABLE' | 'FULLY_RESERVED' | 'CANCELLED';
+export type DonationListStatus = 'OPEN' | 'FULLY_RESERVED' | 'CANCELLED' | 'CLOSED' | 'EXPIRED';
+export type DonationItemStatus = 'AVAILABLE' | 'FULLY_RESERVED' | 'CANCELLED' | 'EXPIRED';
 
 export interface DonationItem {
   id: string;
@@ -72,7 +72,9 @@ export interface DonationListsPage {
   limit: number;
 }
 
-export async function fetchDonations(params: { category?: string; search?: string } = {}) {
+export async function fetchDonations(
+  params: { category?: string; search?: string; city?: string; page?: number; limit?: number } = {},
+) {
   const { data } = await api.get<DonationListsPage>('/donations', { params });
   return data;
 }
@@ -108,10 +110,12 @@ export const DONATION_LIST_STATUS_LABEL: Record<DonationListStatus, string> = {
   FULLY_RESERVED: 'Totalmente reservada',
   CANCELLED: 'Cancelada',
   CLOSED: 'Encerrada',
+  EXPIRED: 'Expirada',
 };
 
 export const DONATION_ITEM_STATUS_LABEL: Record<DonationItemStatus, string> = {
   AVAILABLE: 'Disponível',
   FULLY_RESERVED: 'Reservado',
   CANCELLED: 'Cancelado',
+  EXPIRED: 'Expirado',
 };

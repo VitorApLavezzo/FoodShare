@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchNotifications,
@@ -7,17 +7,32 @@ import {
   clearNotifications,
   type AppNotification,
 } from '../lib/notifications';
-import { getSocket } from '../lib/socket';
+import { onSocketEvent } from '../lib/socket';
+import { formatDateTime } from '../lib/format';
 import { useToast } from '../context/ToastContext';
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-}
 
 export function NotificationsBell() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fecha com Esc ou clique fora — o menu só fechava clicando de novo no sino.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    const onClickOutside = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onClickOutside);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onClickOutside);
+    };
+  }, [open]);
 
   const query = useQuery({
     queryKey: ['notifications'],
@@ -26,22 +41,17 @@ export function NotificationsBell() {
   });
 
   useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
-
-    const handleNew = (notification: { title: string; message: string }) => {
+    const unsubscribeNew = onSocketEvent<{ title: string; message: string }>('notification:new', (notification) => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       showToast(notification.title, 'info');
-    };
-    const handleRemoved = () => {
+    });
+    const unsubscribeRemoved = onSocketEvent('notification:removed', () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-    };
+    });
 
-    socket.on('notification:new', handleNew);
-    socket.on('notification:removed', handleRemoved);
     return () => {
-      socket.off('notification:new', handleNew);
-      socket.off('notification:removed', handleRemoved);
+      unsubscribeNew();
+      unsubscribeRemoved();
     };
   }, [queryClient, showToast]);
 
@@ -65,9 +75,11 @@ export function NotificationsBell() {
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <button
         onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup="menu"
         className="relative rounded-lg p-2 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
         aria-label="Notificações"
       >
@@ -103,7 +115,7 @@ export function NotificationsBell() {
                 <button onClick={() => markRead(notification)} className="flex-1 text-left text-sm">
                   <p className="font-medium text-neutral-900 dark:text-white">{notification.title}</p>
                   <p className="text-xs text-neutral-500">{notification.message}</p>
-                  <p className="mt-0.5 text-[10px] text-neutral-400">{formatDate(notification.createdAt)}</p>
+                  <p className="mt-0.5 text-[10px] text-neutral-400">{formatDateTime(notification.createdAt)}</p>
                 </button>
                 <button
                   onClick={() => removeOne(notification.id)}

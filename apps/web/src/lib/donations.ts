@@ -25,6 +25,9 @@ export interface DonationItem {
   remainingQuantity: number;
   unit: string;
   status: DonationItemStatus;
+  imageUrl?: string | null;
+  allergens?: string | null;
+  storageCondition?: string | null;
 }
 
 export interface DonationList {
@@ -39,6 +42,8 @@ export interface DonationList {
   donorOrganization?: {
     tradeName: string;
     address: { city: string; state: string };
+    completedPickupCount?: number;
+    noShowCount?: number;
   };
 }
 
@@ -50,6 +55,8 @@ export interface CreateDonationItemInput {
   unit: string;
   batch?: string;
   storageCondition?: string;
+  imageUrl?: string;
+  allergens?: string;
 }
 
 export interface CreateDonationListInput {
@@ -82,6 +89,11 @@ export async function fetchDonations(
   return data;
 }
 
+export async function fetchDonation(id: string) {
+  const { data } = await api.get<DonationList>(`/donations/${id}`);
+  return data;
+}
+
 export async function createDonation(input: CreateDonationListInput) {
   const { data } = await api.post<DonationList>('/donations', input);
   return data;
@@ -97,3 +109,11 @@ export async function cancelDonation(id: string) {
   return data;
 }
 
+
+/** Envia a foto do alimento e devolve a URL pública para anexar ao item. */
+export async function uploadImage(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post<{ url: string }>('/uploads/images', formData);
+  return data.url;
+}

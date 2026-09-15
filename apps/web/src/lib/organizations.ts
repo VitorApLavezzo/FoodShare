@@ -28,6 +28,9 @@ export interface Organization {
   operatingHours?: string | null;
   estimatedCapacity?: number | null;
   notificationRadiusKm?: number | null;
+  notificationCategories?: string[];
+  completedPickupCount?: number;
+  noShowCount?: number;
   approvalStatus: ApprovalStatus;
   address: Address;
 }
@@ -44,6 +47,7 @@ export interface CreateOrganizationInput {
   operatingHours?: string;
   estimatedCapacity?: number;
   notificationRadiusKm?: number;
+  notificationCategories?: string[];
   address: Address;
 }
 

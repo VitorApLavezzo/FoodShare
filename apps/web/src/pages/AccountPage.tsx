@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { getApiErrorMessage } from '../lib/api';
-import { updateProfile, changePassword } from '../lib/account';
+import { updateProfile, changePassword, downloadMyData, deleteMyAccount } from '../lib/account';
 import { fetchMyOrganization } from '../lib/organizations';
 import { AppHeader } from '../components/layout/AppHeader';
 import { InputField } from '../components/ui/Field';
@@ -186,6 +186,64 @@ function OrganizationSection({ kind }: { kind: 'DONOR' | 'NGO' }) {
   );
 }
 
+/**
+ * Direitos do titular (LGPD): obter os próprios dados e excluir a conta. Antes
+ * não havia caminho nenhum para nenhum dos dois.
+ */
+function PrivacySection() {
+  const { logout } = useAuth();
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const handleExport = async () => {
+    setBusy(true);
+    try {
+      await downloadMyData();
+      showToast('Seus dados foram baixados.', 'success');
+    } catch {
+      showToast('Não foi possível exportar agora.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    // Dupla confirmação: é irreversível e derruba a sessão.
+    if (!window.confirm('Excluir sua conta? Seus dados pessoais serão removidos e esta ação é irreversível.')) return;
+    if (!window.confirm('Confirma mesmo? Você perderá o acesso imediatamente.')) return;
+
+    setBusy(true);
+    try {
+      await deleteMyAccount();
+      await logout();
+      window.location.href = '/';
+    } catch {
+      showToast('Não foi possível excluir a conta agora.', 'error');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      title="Privacidade"
+      description="Baixe uma cópia dos seus dados ou encerre sua conta na plataforma."
+    >
+      <div className="flex flex-wrap gap-3">
+        <Button variant="secondary" loading={busy} onClick={handleExport}>
+          Baixar meus dados
+        </Button>
+        <Button variant="danger" disabled={busy} onClick={handleDelete}>
+          Excluir minha conta
+        </Button>
+      </div>
+      <p className="mt-3 text-xs text-neutral-500">
+        O histórico de doações já concluídas é mantido de forma anônima, por ser registro também da outra
+        organização envolvida.
+      </p>
+    </SectionCard>
+  );
+}
+
 export function AccountPage() {
   const { user } = useAuth();
   if (!user) return null;
@@ -202,6 +260,7 @@ export function AccountPage() {
         <ProfileSection />
         <PasswordSection />
         {(user.role === 'DONOR' || user.role === 'NGO') && <OrganizationSection kind={user.role} />}
+        <PrivacySection />
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { OrganizationForm } from '../components/OrganizationForm';
 import { DonationForm } from '../components/DonationForm';
 import { DonationsList } from '../components/DonationsList';
 import { ReservationsList } from '../components/ReservationsList';
+import { DonationTemplatesPanel } from '../components/DonationTemplatesPanel';
 // Os gráficos (recharts) são a dependência mais pesada da tela e ficam abaixo
 // do conteúdo principal — carregar sob demanda encurta o primeiro render.
 const DonorMetrics = lazy(() =>
@@ -140,6 +141,10 @@ export function DashboardPage() {
 
                 <div className="mt-4">
                   <DonationsList mode="own" />
+                </div>
+
+                <div className="mt-8">
+                  <DonationTemplatesPanel />
                 </div>
 
                 <div className="mt-8">

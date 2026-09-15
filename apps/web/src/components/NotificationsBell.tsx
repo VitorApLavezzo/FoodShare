@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchNotifications,
@@ -16,6 +17,7 @@ export function NotificationsBell() {
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // Fecha com Esc ou clique fora — o menu só fechava clicando de novo no sino.
   useEffect(() => {
@@ -58,10 +60,17 @@ export function NotificationsBell() {
   const items = query.data?.items ?? [];
   const unreadCount = items.filter((n) => !n.readAt).length;
 
-  const markRead = async (notification: AppNotification) => {
-    if (notification.readAt) return;
-    await markNotificationRead(notification.id);
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  // Clicar na notificação leva à doação que a originou — antes ela só marcava
+  // como lida e o usuário tinha de caçar a doação na lista.
+  const openNotification = async (notification: AppNotification) => {
+    if (!notification.readAt) {
+      await markNotificationRead(notification.id);
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    }
+    if (notification.donationListId) {
+      setOpen(false);
+      navigate(`/doacoes/${notification.donationListId}`);
+    }
   };
 
   const removeOne = async (id: string) => {
@@ -112,7 +121,7 @@ export function NotificationsBell() {
                   notification.readAt ? 'opacity-60' : ''
                 }`}
               >
-                <button onClick={() => markRead(notification)} className="flex-1 text-left text-sm">
+                <button onClick={() => openNotification(notification)} className="flex-1 text-left text-sm">
                   <p className="font-medium text-neutral-900 dark:text-white">{notification.title}</p>
                   <p className="text-xs text-neutral-500">{notification.message}</p>
                   <p className="mt-0.5 text-[10px] text-neutral-400">{formatDateTime(notification.createdAt)}</p>

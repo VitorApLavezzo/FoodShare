@@ -85,6 +85,13 @@ export function LoginPage() {
           {...register('password')}
         />
 
+        <Link
+          to="/esqueci-senha"
+          className="-mt-1 self-end text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
+        >
+          Esqueci minha senha
+        </Link>
+
         {serverError && (
           <p
             role="alert"

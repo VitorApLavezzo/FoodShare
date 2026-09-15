@@ -1,5 +1,6 @@
 import { useState, type FocusEvent } from 'react';
 import {
+  DONATION_CATEGORY_LABEL,
   ORGANIZATION_TYPES,
   ORGANIZATION_TYPE_LABEL,
   type OrganizationType,
@@ -30,6 +31,7 @@ const schema = z.object({
   description: z.string().optional(),
   estimatedCapacity: z.coerce.number().int().min(0).optional(),
   notificationRadiusKm: z.coerce.number().int().min(1).optional(),
+  notificationCategories: z.array(z.string()).optional(),
   street: z.string().min(2, 'Informe a rua.'),
   number: z.string().optional(),
   neighborhood: z.string().min(2, 'Informe o bairro.'),
@@ -77,6 +79,7 @@ export function OrganizationForm({
           description: organization.description ?? undefined,
           estimatedCapacity: organization.estimatedCapacity ?? undefined,
           notificationRadiusKm: organization.notificationRadiusKm ?? undefined,
+          notificationCategories: organization.notificationCategories ?? [],
           street: organization.address.street,
           number: organization.address.number,
           neighborhood: organization.address.neighborhood,
@@ -217,14 +220,33 @@ export function OrganizationForm({
       </div>
 
       {kind === 'NGO' && (
-        <InputField
-          type="number"
-          min={1}
-          label="Raio de notificação (km)"
-          hint="Você será alertada quando um doador publicar alimentos dentro dessa distância. Padrão: 50km."
-          error={errors.notificationRadiusKm?.message}
-          {...register('notificationRadiusKm')}
-        />
+        <>
+          <InputField
+            type="number"
+            min={1}
+            label="Raio de notificação (km)"
+            hint="Você será alertada quando um doador publicar alimentos dentro dessa distância. Padrão: 50km."
+            error={errors.notificationRadiusKm?.message}
+            {...register('notificationRadiusKm')}
+          />
+
+          <fieldset className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+            <legend className="px-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Categorias de interesse
+            </legend>
+            <p className="mb-3 text-xs text-neutral-500">
+              Deixe tudo desmarcado para receber alerta de qualquer alimento.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {Object.entries(DONATION_CATEGORY_LABEL).map(([value, label]) => (
+                <label key={value} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" value={value} {...register('notificationCategories')} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">

@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { useState, type ChangeEvent } from 'react';
+import { useFieldArray, useForm, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { DONATION_CATEGORIES, type DonationCategory } from '@foodshare/types';
 import {
   CATEGORY_LABEL,
   createDonation,
+  uploadImage,
   type CreateDonationListInput,
   type DonationList,
 } from '../lib/donations';
@@ -18,6 +19,8 @@ const itemSchema = z.object({
   description: z.string().optional(),
   quantity: z.coerce.number().positive('A quantidade deve ser maior que zero.'),
   unit: z.string().min(1, 'Informe a unidade (kg, un, L...).'),
+  allergens: z.string().optional(),
+  imageUrl: z.string().optional(),
 });
 
 const schema = z.object({
@@ -41,7 +44,73 @@ const emptyItem = {
   description: '',
   quantity: 1,
   unit: '',
+  allergens: '',
+  imageUrl: '',
 };
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+
+/**
+ * Upload da foto do item. O arquivo sobe assim que é escolhido e o formulário
+ * guarda só a URL, então publicar a doação continua sendo uma única requisição.
+ */
+function ItemImageField({
+  index,
+  setValue,
+  watch,
+}: {
+  index: number;
+  setValue: UseFormSetValue<FormValues>;
+  watch: UseFormWatch<FormValues>;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const imageUrl = watch(`items.${index}.imageUrl`);
+
+  const handleChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError(null);
+    try {
+      const url = await uploadImage(file);
+      setValue(`items.${index}.imageUrl`, url, { shouldDirty: true });
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Não foi possível enviar a imagem.'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <label className={labelClass}>Foto (opcional)</label>
+      {imageUrl ? (
+        <div className="flex items-center gap-3">
+          <img src={`${API_URL}${imageUrl}`} alt="Prévia do alimento" className="h-16 w-16 rounded-lg object-cover" />
+          <button
+            type="button"
+            onClick={() => setValue(`items.${index}.imageUrl`, '', { shouldDirty: true })}
+            className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+          >
+            Remover
+          </button>
+        </div>
+      ) : (
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleChange}
+          disabled={uploading}
+          className="w-full text-sm text-neutral-600 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-neutral-200 dark:text-neutral-400 dark:file:bg-neutral-800"
+        />
+      )}
+      {uploading && <p className="mt-1 text-xs text-neutral-500">Enviando…</p>}
+      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
 
 export function DonationForm({ onCreated }: { onCreated: (donationList: DonationList) => void }) {
   const [serverError, setServerError] = useState<string | null>(null);
@@ -49,6 +118,8 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
     register,
     control,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -136,6 +207,18 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
             <div className="mt-4">
               <label className={labelClass}>Descrição (opcional)</label>
               <textarea className={inputClass} rows={2} {...register(`items.${index}.description`)} />
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>Alergênicos (opcional)</label>
+                <input
+                  className={inputClass}
+                  placeholder="Ex.: contém glúten, leite"
+                  {...register(`items.${index}.allergens`)}
+                />
+              </div>
+              <ItemImageField index={index} setValue={setValue} watch={watch} />
             </div>
           </div>
         ))}

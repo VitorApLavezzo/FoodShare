@@ -1,11 +1,7 @@
 import { api } from './api';
 
-export type NotificationType =
-  | 'NEW_DONATION_NEARBY'
-  | 'RESERVATION_DEADLINE_SOON'
-  | 'DONATION_RESERVED'
-  | 'PICKUP_CONFIRMED'
-  | 'GENERIC';
+import type { NotificationType } from '@foodshare/types';
+export type { NotificationType };
 
 export interface AppNotification {
   id: string;
@@ -13,6 +9,7 @@ export interface AppNotification {
   title: string;
   message: string;
   readAt?: string | null;
+  donationListId?: string | null;
   createdAt: string;
 }
 

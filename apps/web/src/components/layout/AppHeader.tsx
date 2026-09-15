@@ -48,6 +48,7 @@ export function AppHeader() {
             <NavLink to="/dashboard" label="Painel" />
             <NavLink to="/map" label="Mapa" />
             {user.role === 'ADMIN' && <NavLink to="/reports" label="Relatórios" />}
+            {user.role === 'ADMIN' && <NavLink to="/admin/usuarios" label="Usuários" />}
           </nav>
         </div>
 

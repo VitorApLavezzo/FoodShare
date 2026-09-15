@@ -4,6 +4,8 @@ import { DonationItemStatus, DonationListStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { LeaderLockService } from '../../common/leader-lock.service';
+import { recomputeDonationListStatus } from './donation-list-status';
 
 @Injectable()
 export class DonationsExpirationJob {
@@ -13,13 +15,20 @@ export class DonationsExpirationJob {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly notificationsService: NotificationsService,
+    private readonly leaderLock: LeaderLockService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async expireOverdueDonations() {
+    // Os 3 nós rodam o mesmo cron sobre o mesmo banco: sem o lock, cada expiração
+    // gerava auditoria e notificação em triplicata.
+    await this.leaderLock.runExclusively('donations-expiration', () => this.run());
+  }
+
+  private async run() {
     const overdue = await this.prisma.donationList.findMany({
       where: {
-        status: DonationListStatus.OPEN,
+        status: { in: [DonationListStatus.OPEN, DonationListStatus.FULLY_RESERVED] },
         expiresAt: { lt: new Date() },
         deletedAt: null,
       },
@@ -28,34 +37,28 @@ export class DonationsExpirationJob {
 
     if (overdue.length === 0) return;
 
-    const overdueIds = overdue.map((d) => d.id);
+    for (const list of overdue) {
+      await this.prisma.$transaction(async (tx) => {
+        // Item não retirado vira EXPIRED (não CANCELLED): preserva a diferença
+        // entre "o doador desistiu" e "venceu sem ninguém buscar" nos relatórios.
+        await tx.donationItem.updateMany({
+          where: { donationListId: list.id, status: DonationItemStatus.AVAILABLE },
+          data: { status: DonationItemStatus.EXPIRED },
+        });
+        await recomputeDonationListStatus(tx, list.id);
+      });
 
-    await this.prisma.$transaction([
-      this.prisma.donationItem.updateMany({
-        where: { donationListId: { in: overdueIds }, status: DonationItemStatus.AVAILABLE },
-        data: { status: DonationItemStatus.CANCELLED },
-      }),
-      this.prisma.donationList.updateMany({
-        where: { id: { in: overdueIds } },
-        data: { status: DonationListStatus.CLOSED },
-      }),
-    ]);
+      await this.auditLogService.record({
+        entity: 'DonationList',
+        entityId: list.id,
+        donationListId: list.id,
+        eventType: 'DONATION_LIST_EXPIRED',
+        nodeId: list.nodeId,
+        newData: { status: DonationListStatus.EXPIRED },
+      });
+      await this.notificationsService.removeForDonationList(list.id);
+    }
 
-    await Promise.all(
-      overdue.map((d) =>
-        this.auditLogService.record({
-          entity: 'DonationList',
-          entityId: d.id,
-          donationListId: d.id,
-          eventType: 'DONATION_LIST_EXPIRED',
-          nodeId: d.nodeId,
-          newData: { status: DonationListStatus.CLOSED },
-        }),
-      ),
-    );
-
-    await Promise.all(overdueIds.map((id) => this.notificationsService.removeForDonationList(id)));
-
-    this.logger.log(`${overdue.length} lista(s) de doação marcada(s) como CLOSED por expiração.`);
+    this.logger.log(`${overdue.length} lista(s) de doação encerrada(s) por expiração.`);
   }
 }

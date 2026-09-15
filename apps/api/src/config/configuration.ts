@@ -18,6 +18,10 @@ export default () => ({
   notifications: {
     radiusKm: parseInt(process.env.NOTIFICATION_RADIUS_KM ?? '50', 10),
   },
+  reservations: {
+    // Tolerância após o prazo de retirada antes de liberar a reserva abandonada.
+    pickupGraceMinutes: parseInt(process.env.RESERVATION_PICKUP_GRACE_MINUTES ?? '120', 10),
+  },
   cnpjApi: {
     url: process.env.CNPJ_API_URL ?? 'https://brasilapi.com.br/api/cnpj/v1',
     cacheTtlSeconds: parseInt(process.env.CNPJ_CACHE_TTL_SECONDS ?? '86400', 10),

@@ -142,6 +142,7 @@ model OrganizationUser {
   createdAt      DateTime     @default(now())
 
   @@unique([organizationId, userId])
+  @@index([userId])
   @@map("organization_users")
 }
 
@@ -158,11 +159,14 @@ enum DonationCategory {
   OTHER
 }
 
+// Estados terminais: CANCELLED (doador desistiu), EXPIRED (venceu sem ser
+// retirada) e CLOSED (tudo que foi reservado acabou sendo retirado).
 enum DonationListStatus {
   OPEN
   FULLY_RESERVED
   CANCELLED
   CLOSED
+  EXPIRED
 }
 
 // Toda doação é uma lista de 1+ itens. Doador decide em allowPartial se a ONG
@@ -192,6 +196,7 @@ model DonationList {
   @@index([status])
   @@index([expiresAt])
   @@index([nodeId])
+  @@index([donorOrganizationId])
   @@map("donation_lists")
 }
 
@@ -199,6 +204,7 @@ enum DonationItemStatus {
   AVAILABLE
   FULLY_RESERVED
   CANCELLED
+  EXPIRED
 }
 
 model DonationItem {
@@ -208,8 +214,11 @@ model DonationItem {
   foodName          String
   category          DonationCategory
   description       String?
-  quantity          Float
-  remainingQuantity Float
+  // Decimal (não Float): quantidade sofre soma/subtração repetida a cada reserva
+  // parcial e cancelamento — binário flutuante acumularia resto (ex.: item
+  // "zerado" ficando em 1e-17 e nunca saindo de AVAILABLE).
+  quantity          Decimal            @db.Decimal(12, 3)
+  remainingQuantity Decimal            @db.Decimal(12, 3)
   unit              String
   batch             String?
   storageCondition  String?
@@ -232,6 +241,7 @@ enum ReservationStatus {
   ACTIVE
   CANCELLED
   COMPLETED
+  EXPIRED // ONG não retirou até o prazo: quantidade devolvida à lista (no-show)
 }
 
 model Reservation {
@@ -254,16 +264,17 @@ model Reservation {
 
   @@index([status])
   @@index([donationListId])
+  @@index([ngoOrganizationId])
   @@map("reservations")
 }
 
 model ReservationItem {
   id             String       @id @default(uuid())
   reservationId  String
-  reservation    Reservation  @relation(fields: [reservationId], references: [id])
+  reservation    Reservation  @relation(fields: [reservationId], references: [id], onDelete: Cascade)
   donationItemId String
   donationItem   DonationItem @relation(fields: [donationItemId], references: [id])
-  quantity       Float
+  quantity       Decimal      @db.Decimal(12, 3)
 
   @@index([reservationId])
   @@index([donationItemId])
@@ -288,7 +299,7 @@ model Conversation {
 model Message {
   id             String       @id @default(uuid())
   conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderUserId   String
   senderUser     User         @relation(fields: [senderUserId], references: [id])
   body           String
@@ -380,6 +391,7 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([createdAt])
+  @@index([donationListId])
   @@map("audit_logs")
 }
 

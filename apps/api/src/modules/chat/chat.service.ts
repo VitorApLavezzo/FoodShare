@@ -1,4 +1,5 @@
 import { forwardRef, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
@@ -11,28 +12,32 @@ export class ChatService {
   ) {}
 
   /**
-   * Uma conversa por reserva (1:1), criada na primeira vez que uma ONG reserva
-   * itens de uma lista. Idempotente: se já existir para essa reserva, retorna a
-   * existente em vez de duplicar.
+   * Uma conversa por reserva (1:1). Recebe o client da transação da reserva:
+   * a conversa nasce junto com a reserva, no mesmo commit — antes ela era criada
+   * depois do commit e uma falha ali deixava a reserva permanentemente sem chat.
    */
-  async getOrCreateConversation(reservationId: string, donationListId: string) {
-    const existing = await this.prisma.conversation.findUnique({ where: { reservationId } });
-    if (existing) return existing;
+  createConversationForReservation(
+    tx: Prisma.TransactionClient,
+    reservationId: string,
+    donationListId: string,
+  ) {
+    return tx.conversation.create({ data: { reservationId, donationListId } });
+  }
 
-    const conversation = await this.prisma.conversation.create({
-      data: { reservationId, donationListId },
-    });
-
-    const [reservation, donationList] = await Promise.all([
-      this.prisma.reservation.findUniqueOrThrow({ where: { id: reservationId } }),
-      this.prisma.donationList.findUniqueOrThrow({ where: { id: donationListId } }),
-    ]);
-
-    const payload = { conversationId: conversation.id, reservationId, donationListId };
-    this.realtimeGateway.emitToOrganization(donationList.donorOrganizationId, 'conversation:created', payload);
-    this.realtimeGateway.emitToOrganization(reservation.ngoOrganizationId, 'conversation:created', payload);
-
-    return conversation;
+  notifyConversationCreated(params: {
+    conversationId: string;
+    reservationId: string;
+    donationListId: string;
+    donorOrganizationId: string;
+    ngoOrganizationId: string;
+  }) {
+    const payload = {
+      conversationId: params.conversationId,
+      reservationId: params.reservationId,
+      donationListId: params.donationListId,
+    };
+    this.realtimeGateway.emitToOrganization(params.donorOrganizationId, 'conversation:created', payload);
+    this.realtimeGateway.emitToOrganization(params.ngoOrganizationId, 'conversation:created', payload);
   }
 
   async findConversations(userId: string) {

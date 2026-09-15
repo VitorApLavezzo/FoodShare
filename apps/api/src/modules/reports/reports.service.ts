@@ -1,15 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DonationItemStatus, Prisma, ReservationStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReportQueryDto } from './dto/report-query.dto';
 
+const MAX_REPORT_ROWS = 5000;
+
 @Injectable()
 export class ReportsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // Unidade do relatório é o item (não a lista) - reflete o que de fato foi
   // ofertado/distribuído, já que uma lista pode ter itens com destinos distintos.
@@ -25,14 +23,14 @@ export class ReportsService {
     if (query.category) where.category = query.category;
     if (query.status) where.status = query.status as DonationItemStatus;
 
-    const donationListWhere: Prisma.DonationListWhereInput = {};
+    const donationListWhere: Prisma.DonationListWhereInput = { deletedAt: null };
     if (query.donorOrganizationId) donationListWhere.donorOrganizationId = query.donorOrganizationId;
-
-    const donorOrganizationWhere: Prisma.OrganizationWhereInput = {};
-    if (query.city) donorOrganizationWhere.address = { city: { equals: query.city, mode: 'insensitive' } };
-    if (Object.keys(donorOrganizationWhere).length > 0) donationListWhere.donorOrganization = donorOrganizationWhere;
-
-    if (Object.keys(donationListWhere).length > 0) where.donationList = donationListWhere;
+    if (query.city) {
+      donationListWhere.donorOrganization = {
+        address: { city: { equals: query.city, mode: 'insensitive' } },
+      };
+    }
+    where.donationList = donationListWhere;
 
     if (query.ngoOrganizationId) {
       where.reservationItems = { some: { reservation: { ngoOrganizationId: query.ngoOrganizationId } } };
@@ -53,14 +51,14 @@ export class ReportsService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 5000,
+      take: MAX_REPORT_ROWS,
     });
 
     return items.map((item) => ({
       donationId: item.id,
       foodName: item.foodName,
       category: item.category,
-      quantity: item.quantity,
+      quantity: item.quantity.toNumber(),
       unit: item.unit,
       status: item.status,
       donorName: item.donationList.donorOrganization.tradeName,
@@ -73,42 +71,45 @@ export class ReportsService {
     }));
   }
 
+  /**
+   * Agregado em SQL em vez de carregar todos os itens na memória. Expirado e
+   * cancelado voltaram a ser métricas distintas — antes ambos viravam
+   * CANCELLED no banco e `totalExpired` ficava fixo em zero.
+   */
   async getImpactReport(query: ReportQueryDto) {
-    const items = await this.prisma.donationItem.findMany({
-      where: this.buildWhere(query),
-      include: {
-        donationList: { include: { donorOrganization: { include: { address: true } } } },
-        reservationItems: { include: { reservation: true } },
-      },
-    });
+    const where = this.buildWhere(query);
 
-    const byCity = new Map<string, { city: string; donations: number; quantity: number }>();
-    let totalQuantityDistributed = 0;
-    let totalCompleted = 0;
+    const [statusGroups, totalDonations, delivered, byRegion] = await Promise.all([
+      this.prisma.donationItem.groupBy({ by: ['status'], where, _count: { _all: true } }),
+      this.prisma.donationItem.count({ where }),
+      this.prisma.reservationItem.aggregate({
+        where: { reservation: { status: ReservationStatus.COMPLETED }, donationItem: where },
+        _sum: { quantity: true },
+      }),
+      this.prisma.$queryRaw<{ city: string; donations: number; quantity: number }[]>`
+        SELECT a.city,
+               COUNT(DISTINCT di.id)::int AS donations,
+               COALESCE(SUM(ri.quantity), 0)::float8 AS quantity
+        FROM reservation_items ri
+        JOIN reservations r ON r.id = ri."reservationId" AND r.status = 'COMPLETED'
+        JOIN donation_items di ON di.id = ri."donationItemId"
+        JOIN donation_lists dl ON dl.id = di."donationListId" AND dl."deletedAt" IS NULL
+        JOIN organizations o ON o.id = dl."donorOrganizationId"
+        JOIN addresses a ON a.id = o."addressId"
+        GROUP BY a.city
+        ORDER BY quantity DESC`,
+    ]);
 
-    for (const item of items) {
-      const completedQuantity = item.reservationItems
-        .filter((ri) => ri.reservation.status === ReservationStatus.COMPLETED)
-        .reduce((sum, ri) => sum + ri.quantity, 0);
-      if (completedQuantity <= 0) continue;
-
-      totalCompleted += 1;
-      totalQuantityDistributed += completedQuantity;
-
-      const city = item.donationList.donorOrganization.address.city;
-      const entry = byCity.get(city) ?? { city, donations: 0, quantity: 0 };
-      entry.donations += 1;
-      entry.quantity += completedQuantity;
-      byCity.set(city, entry);
-    }
+    const countFor = (status: DonationItemStatus) =>
+      statusGroups.find((g) => g.status === status)?._count._all ?? 0;
 
     return {
-      totalDonations: items.length,
-      totalCompleted,
-      totalExpired: 0,
-      totalCancelled: items.filter((item) => item.status === DonationItemStatus.CANCELLED).length,
-      totalQuantityDistributed,
-      impactByRegion: [...byCity.values()].sort((a, b) => b.quantity - a.quantity),
+      totalDonations,
+      totalCompleted: countFor(DonationItemStatus.FULLY_RESERVED),
+      totalExpired: countFor(DonationItemStatus.EXPIRED),
+      totalCancelled: countFor(DonationItemStatus.CANCELLED),
+      totalQuantityDistributed: delivered._sum.quantity?.toNumber() ?? 0,
+      impactByRegion: byRegion,
     };
   }
 }

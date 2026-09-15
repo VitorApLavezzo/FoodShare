@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
@@ -13,6 +13,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
+import { SendMessageWsDto } from './dto/send-message.dto';
 
 interface JwtPayload {
   sub: string;
@@ -25,7 +26,11 @@ interface JwtPayload {
 // doador<->ONG compartilham a mesma conexão Socket.IO/rooms, só variam no nome
 // do evento. Rooms: `user:<userId>` (notificações) e `org:<organizationId>`
 // (chat, mensagens visíveis a qualquer usuário vinculado a cada organização).
-@WebSocketGateway({ cors: { origin: true, credentials: true } })
+// A origem vem da mesma config do CORS HTTP: com `origin: true` qualquer site
+// conseguiria abrir um socket autenticado se tivesse o token.
+@WebSocketGateway({
+  cors: { origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173', credentials: true },
+})
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
@@ -80,13 +85,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server.to(`org:${organizationId}`).emit(event, payload);
   }
 
+  /**
+   * Responde com ack ({ok}) em vez de silêncio: sem isso, um envio que falhava
+   * (sem permissão, conversa inexistente, validação) sumia — o cliente já tinha
+   * limpado o campo de texto e a mensagem se perdia sem aviso.
+   */
   @SubscribeMessage('message:send')
-  async handleMessageSend(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() body: { conversationId: string; body: string },
-  ) {
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async handleMessageSend(@ConnectedSocket() client: Socket, @MessageBody() body: SendMessageWsDto) {
     const userId = client.data.userId as string | undefined;
-    if (!userId) return;
-    await this.chatService.sendMessage(userId, body.conversationId, body.body);
+    if (!userId) return { ok: false, code: 'UNAUTHENTICATED' };
+
+    try {
+      const message = await this.chatService.sendMessage(userId, body.conversationId, body.body);
+      return { ok: true, messageId: message.id };
+    } catch (err) {
+      this.logger.warn(`Falha ao enviar mensagem via WS (usuário ${userId}): ${(err as Error).message}`);
+      return { ok: false, code: 'MESSAGE_NOT_SENT' };
+    }
   }
 }

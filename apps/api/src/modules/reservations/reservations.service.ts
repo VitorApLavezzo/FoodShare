@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -20,15 +21,20 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
 import { ChatService } from '../chat/chat.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
+import { recomputeDonationListStatus } from '../donations/donation-list-status';
 
+// remainingQuantity vem como texto do $queryRaw: converter para Prisma.Decimal
+// explicitamente evita depender de como o driver mapeia NUMERIC.
 interface LockedItemRow {
   id: string;
-  remainingQuantity: number;
+  remainingQuantity: string;
   status: DonationItemStatus;
 }
 
 @Injectable()
 export class ReservationsService {
+  private readonly logger = new Logger(ReservationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
@@ -47,39 +53,42 @@ export class ReservationsService {
   async reserve(user: AuthenticatedUser, dto: CreateReservationDto) {
     const ngoOrganization = await this.getApprovedNgoOrganization(user.id);
 
-    const donationList = await this.prisma.donationList.findFirst({
-      where: { id: dto.donationListId, deletedAt: null },
-      include: { items: true },
-    });
-    if (!donationList) {
-      throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
-    }
-    if (donationList.expiresAt <= new Date()) {
-      throw new ConflictException({ code: 'DONATION_EXPIRED', message: 'Esta doação já expirou.' });
-    }
-    if (donationList.status !== DonationListStatus.OPEN) {
-      throw new ConflictException({
-        code: 'DONATION_NOT_AVAILABLE',
-        message: 'Esta lista de doação não está mais disponível.',
-      });
-    }
-
     const itemIds = dto.items.map((i) => i.donationItemId);
     if (new Set(itemIds).size !== itemIds.length) {
       throw new BadRequestException({ code: 'DUPLICATE_ITEM', message: 'Item duplicado no pedido.' });
     }
-    const knownIds = new Set(donationList.items.map((i) => i.id));
-    if (!itemIds.every((id) => knownIds.has(id))) {
-      throw new NotFoundException({ code: 'ITEM_NOT_FOUND', message: 'Item não pertence a esta doação.' });
-    }
 
-    if (!donationList.allowPartial) {
-      this.assertCoversAllAvailableItems(donationList.items, dto.items);
-    }
+    // Tudo que decide a reserva (status da lista, validade, disponibilidade e a
+    // regra de aceite parcial) é lido DENTRO da transação, sobre linhas já
+    // travadas — ler antes abriria janela para decidir com dado velho.
+    const { reservation, conversation, donorOrganizationId } = await this.prisma.$transaction(async (tx) => {
+      const donationList = await tx.donationList.findFirst({
+        where: { id: dto.donationListId, deletedAt: null },
+      });
+      if (!donationList) {
+        throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
+      }
+      if (donationList.expiresAt <= new Date()) {
+        throw new ConflictException({ code: 'DONATION_EXPIRED', message: 'Esta doação já expirou.' });
+      }
+      if (donationList.status !== DonationListStatus.OPEN) {
+        throw new ConflictException({
+          code: 'DONATION_NOT_AVAILABLE',
+          message: 'Esta lista de doação não está mais disponível.',
+        });
+      }
 
-    const reservation = await this.prisma.$transaction(async (tx) => {
+      // status = 'AVAILABLE' (e não "!= CANCELLED"): item esgotado não entra no
+      // lock, então pedir um item já reservado falha aqui em vez de virar uma
+      // reserva de quantidade zero.
       const rows = await tx.$queryRaw<LockedItemRow[]>(
-        Prisma.sql`SELECT id, "remainingQuantity", status FROM donation_items WHERE id = ANY(${itemIds}) AND status != 'CANCELLED' ORDER BY id FOR UPDATE`,
+        Prisma.sql`SELECT id, "remainingQuantity"::text AS "remainingQuantity", status
+                   FROM donation_items
+                   WHERE id = ANY(${itemIds})
+                     AND "donationListId" = ${donationList.id}
+                     AND status = 'AVAILABLE'
+                   ORDER BY id
+                   FOR UPDATE`,
       );
       if (rows.length !== itemIds.length) {
         throw new ConflictException({
@@ -90,17 +99,30 @@ export class ReservationsService {
 
       const reservationItemsData = dto.items.map((requested) => {
         const row = rows.find((r) => r.id === requested.donationItemId)!;
-        const wantedQty = requested.quantity ?? row.remainingQuantity;
-        if (wantedQty > row.remainingQuantity) {
+        const remaining = new Prisma.Decimal(row.remainingQuantity);
+        const wanted = requested.quantity !== undefined ? new Prisma.Decimal(requested.quantity) : remaining;
+
+        if (wanted.lte(0)) {
+          throw new BadRequestException({
+            code: 'INVALID_QUANTITY',
+            message: 'A quantidade reservada deve ser maior que zero.',
+            itemId: row.id,
+          });
+        }
+        if (wanted.gt(remaining)) {
           throw new ConflictException({
             code: 'INSUFFICIENT_QUANTITY',
             message: `Quantidade indisponível para o item ${row.id}.`,
             itemId: row.id,
-            available: row.remainingQuantity,
+            available: remaining.toNumber(),
           });
         }
-        return { donationItemId: row.id, quantity: wantedQty };
+        return { donationItemId: row.id, quantity: wanted, remaining };
       });
+
+      if (!donationList.allowPartial) {
+        await this.assertCoversAllAvailableItems(tx, donationList.id, reservationItemsData);
+      }
 
       const reservation = await tx.reservation.create({
         data: {
@@ -108,52 +130,78 @@ export class ReservationsService {
           ngoOrganizationId: ngoOrganization.id,
           pickupCode: generatePickupCode(),
           nodeId: user.nodeId,
-          items: { create: reservationItemsData },
+          items: {
+            create: reservationItemsData.map((i) => ({
+              donationItemId: i.donationItemId,
+              quantity: i.quantity,
+            })),
+          },
         },
         include: { items: true },
       });
 
       for (const requested of reservationItemsData) {
-        const row = rows.find((r) => r.id === requested.donationItemId)!;
-        const newRemaining = row.remainingQuantity - requested.quantity;
+        const newRemaining = requested.remaining.minus(requested.quantity);
         await tx.donationItem.update({
           where: { id: requested.donationItemId },
           data: {
             remainingQuantity: newRemaining,
-            status: newRemaining <= 0 ? DonationItemStatus.FULLY_RESERVED : DonationItemStatus.AVAILABLE,
+            status: newRemaining.lte(0) ? DonationItemStatus.FULLY_RESERVED : DonationItemStatus.AVAILABLE,
             version: { increment: 1 },
           },
         });
       }
 
-      const stillAvailable = await tx.donationItem.count({
-        where: { donationListId: donationList.id, status: DonationItemStatus.AVAILABLE },
-      });
-      await tx.donationList.update({
-        where: { id: donationList.id },
-        data: {
-          status: stillAvailable === 0 ? DonationListStatus.FULLY_RESERVED : DonationListStatus.OPEN,
-          version: { increment: 1 },
-        },
-      });
+      await recomputeDonationListStatus(tx, donationList.id);
 
-      return reservation;
+      const conversation = await this.chatService.createConversationForReservation(
+        tx,
+        reservation.id,
+        donationList.id,
+      );
+
+      return { reservation, conversation, donorOrganizationId: donationList.donorOrganizationId };
     });
 
-    await this.auditLogService.record({
-      entity: 'Reservation',
-      entityId: reservation.id,
-      donationListId: donationList.id,
-      eventType: 'DONATION_RESERVED',
-      userId: user.id,
-      nodeId: user.nodeId,
-      newData: reservation,
-    });
-    await this.syncService.publishEvent('DONATION_RESERVED', donationList.id, reservation);
-
-    const conversation = await this.chatService.getOrCreateConversation(reservation.id, donationList.id);
+    // Efeitos colaterais best-effort: a reserva já commitou, então uma falha
+    // aqui não pode virar 500 para a ONG (antes virava, e ainda deixava a
+    // reserva sem conversa).
+    void this.afterReserve(user, reservation, conversation, donorOrganizationId, ngoOrganization.id);
 
     return { ...reservation, conversationId: conversation.id };
+  }
+
+  private async afterReserve(
+    user: AuthenticatedUser,
+    reservation: { id: string; donationListId: string },
+    conversation: { id: string },
+    donorOrganizationId: string,
+    ngoOrganizationId: string,
+  ) {
+    try {
+      await this.auditLogService.record({
+        entity: 'Reservation',
+        entityId: reservation.id,
+        donationListId: reservation.donationListId,
+        eventType: 'DONATION_RESERVED',
+        userId: user.id,
+        nodeId: user.nodeId,
+        newData: reservation,
+      });
+      await this.syncService.publishEvent('DONATION_RESERVED', reservation.donationListId, reservation);
+      this.chatService.notifyConversationCreated({
+        conversationId: conversation.id,
+        reservationId: reservation.id,
+        donationListId: reservation.donationListId,
+        donorOrganizationId,
+        ngoOrganizationId,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Efeito pós-commit da reserva ${reservation.id} falhou (a reserva foi criada normalmente).`,
+        err as Error,
+      );
+    }
   }
 
   async cancel(user: AuthenticatedUser, reservationId: string) {
@@ -185,31 +233,13 @@ export class ReservationsService {
         });
       }
 
-      const itemIds = reservation.items.map((i) => i.donationItemId);
-      await tx.$queryRaw(
-        Prisma.sql`SELECT id FROM donation_items WHERE id = ANY(${itemIds}) ORDER BY id FOR UPDATE`,
-      );
-
       const updated = await tx.reservation.update({
         where: { id: reservation.id },
         data: { status: ReservationStatus.CANCELLED, cancelledAt: new Date() },
       });
 
-      for (const item of reservation.items) {
-        await tx.donationItem.update({
-          where: { id: item.donationItemId },
-          data: {
-            remainingQuantity: { increment: item.quantity },
-            status: DonationItemStatus.AVAILABLE,
-            version: { increment: 1 },
-          },
-        });
-      }
-
-      await tx.donationList.update({
-        where: { id: reservation.donationListId },
-        data: { status: DonationListStatus.OPEN, version: { increment: 1 } },
-      });
+      await this.releaseReservationItems(tx, reservation.donationListId, reservation.items);
+      await recomputeDonationListStatus(tx, reservation.donationListId);
 
       return updated;
     });
@@ -247,6 +277,15 @@ export class ReservationsService {
           message: 'Código de retirada inválido.',
         });
       }
+      // Limite de segurança alimentar: passada a validade, a retirada não pode
+      // mais ser confirmada. O prazo de retirada em si é tratado pelo job de
+      // expiração de reservas, que dá uma tolerância antes de liberar o item.
+      if (reservation.donationList.expiresAt <= new Date()) {
+        throw new ConflictException({
+          code: 'DONATION_EXPIRED',
+          message: 'Esta doação venceu e não pode mais ser retirada.',
+        });
+      }
 
       if (user.role !== 'ADMIN') {
         const [isDonorOwner, isNgoOwner] = await Promise.all([
@@ -274,20 +313,7 @@ export class ReservationsService {
         data: { status: ReservationStatus.COMPLETED },
       });
 
-      const [activeReservations, availableItems] = await Promise.all([
-        tx.reservation.count({
-          where: { donationListId: reservation.donationListId, status: ReservationStatus.ACTIVE },
-        }),
-        tx.donationItem.count({
-          where: { donationListId: reservation.donationListId, status: DonationItemStatus.AVAILABLE },
-        }),
-      ]);
-      if (activeReservations === 0 && availableItems === 0) {
-        await tx.donationList.update({
-          where: { id: reservation.donationListId },
-          data: { status: DonationListStatus.CLOSED },
-        });
-      }
+      await recomputeDonationListStatus(tx, reservation.donationListId);
 
       return { pickup, donationListId: reservation.donationListId };
     });
@@ -338,16 +364,93 @@ export class ReservationsService {
     }));
   }
 
-  private assertCoversAllAvailableItems(
-    listItems: { id: string; status: DonationItemStatus; remainingQuantity: number }[],
-    requested: { donationItemId: string; quantity?: number }[],
+  /**
+   * Marca uma reserva como não retirada e devolve a quantidade à lista.
+   * Chamado pelo job de expiração — por isso não exige usuário autenticado.
+   */
+  async expireReservation(reservation: {
+    id: string;
+    donationListId: string;
+    items: { donationItemId: string; quantity: Prisma.Decimal }[];
+  }) {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.reservation.findUnique({ where: { id: reservation.id } });
+      if (!current || current.status !== ReservationStatus.ACTIVE) return;
+
+      await tx.reservation.update({
+        where: { id: reservation.id },
+        data: { status: ReservationStatus.EXPIRED },
+      });
+      await this.releaseReservationItems(tx, reservation.donationListId, reservation.items);
+      await recomputeDonationListStatus(tx, reservation.donationListId);
+    });
+  }
+
+  /**
+   * Devolve as quantidades de uma reserva encerrada aos itens de origem. Um item
+   * cancelado pelo doador ou já expirado NÃO volta a ficar disponível — devolver
+   * a quantidade nesse caso reabriria uma doação que não existe mais.
+   */
+  private async releaseReservationItems(
+    tx: Prisma.TransactionClient,
+    donationListId: string,
+    items: { donationItemId: string; quantity: Prisma.Decimal }[],
   ) {
-    const availableItems = listItems.filter((i) => i.status === DonationItemStatus.AVAILABLE);
+    const itemIds = items.map((i) => i.donationItemId);
+    const locked = await tx.$queryRaw<LockedItemRow[]>(
+      Prisma.sql`SELECT id, "remainingQuantity"::text AS "remainingQuantity", status
+                 FROM donation_items
+                 WHERE id = ANY(${itemIds})
+                 ORDER BY id
+                 FOR UPDATE`,
+    );
+
+    const list = await tx.donationList.findUniqueOrThrow({ where: { id: donationListId } });
+    const listIsOver =
+      list.expiresAt <= new Date() ||
+      list.status === DonationListStatus.CANCELLED ||
+      list.status === DonationListStatus.EXPIRED;
+
+    for (const item of items) {
+      const current = locked.find((l) => l.id === item.donationItemId);
+      if (!current) continue;
+
+      const isTerminal =
+        current.status === DonationItemStatus.CANCELLED || current.status === DonationItemStatus.EXPIRED;
+
+      await tx.donationItem.update({
+        where: { id: item.donationItemId },
+        data: {
+          remainingQuantity: { increment: item.quantity },
+          status: isTerminal
+            ? current.status
+            : listIsOver
+              ? DonationItemStatus.EXPIRED
+              : DonationItemStatus.AVAILABLE,
+          version: { increment: 1 },
+        },
+      });
+    }
+  }
+
+  /**
+   * Lista com allowPartial=false: o pedido precisa cobrir TODOS os itens ainda
+   * disponíveis, cada um pela quantidade inteira. Consultado dentro da transação
+   * (as linhas pedidas já estão travadas) para não decidir sobre dado velho.
+   */
+  private async assertCoversAllAvailableItems(
+    tx: Prisma.TransactionClient,
+    donationListId: string,
+    requested: { donationItemId: string; quantity: Prisma.Decimal; remaining: Prisma.Decimal }[],
+  ) {
+    const availableItems = await tx.donationItem.findMany({
+      where: { donationListId, status: DonationItemStatus.AVAILABLE },
+      select: { id: true },
+    });
     const requestedIds = new Set(requested.map((r) => r.donationItemId));
 
     const coversAll =
-      availableItems.length === requested.length &&
-      availableItems.every((item) => requestedIds.has(item.id));
+      availableItems.length === requested.length && availableItems.every((item) => requestedIds.has(item.id));
     if (!coversAll) {
       throw new ConflictException({
         code: 'PARTIAL_NOT_ALLOWED',
@@ -355,9 +458,8 @@ export class ReservationsService {
       });
     }
 
-    for (const item of availableItems) {
-      const requestedItem = requested.find((r) => r.donationItemId === item.id)!;
-      if (requestedItem.quantity !== undefined && requestedItem.quantity !== item.remainingQuantity) {
+    for (const item of requested) {
+      if (!item.quantity.eq(item.remaining)) {
         throw new ConflictException({
           code: 'PARTIAL_NOT_ALLOWED',
           message: 'O doador não permite aceite parcial: cada item deve ser reservado por inteiro.',

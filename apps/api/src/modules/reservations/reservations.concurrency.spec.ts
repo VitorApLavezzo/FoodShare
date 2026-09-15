@@ -15,7 +15,13 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   const prisma = new PrismaClient();
   const noopAuditLog = { record: jest.fn().mockResolvedValue(undefined) };
   const noopSync = { publishEvent: jest.fn().mockResolvedValue(undefined) };
-  const noopChat = { getOrCreateConversation: jest.fn().mockResolvedValue({ id: 'conv-noop' }) };
+  const noopChat = {
+    createConversationForReservation: jest.fn(
+      (tx: { conversation: { create: (args: unknown) => unknown } }, reservationId: string, donationListId: string) =>
+        tx.conversation.create({ data: { reservationId, donationListId } }),
+    ),
+    notifyConversationCreated: jest.fn(),
+  };
   const service = new ReservationsService(prisma as never, noopAuditLog as never, noopSync as never, noopChat as never);
   const runId = Date.now();
 
@@ -77,7 +83,7 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     };
   }
 
-  async function createDonationList(quantity: number, allowPartial: boolean) {
+  async function createDonationList(quantity: number, allowPartial: boolean, secondItemQuantity?: number) {
     const passwordHash = await bcrypt.hash('senha1234', 4);
     const donorUser = await prisma.user.create({
       data: {
@@ -135,10 +141,23 @@ describe('ReservationsService - concorrência de reserva por item', () => {
               remainingQuantity: quantity,
               unit: 'un',
             },
+            // Item extra opcional: mantém a lista OPEN depois que o primeiro
+            // item esgota, que é a situação do teste de reserva fantasma.
+            ...(secondItemQuantity !== undefined
+              ? [
+                  {
+                    foodName: 'Pães',
+                    category: DonationCategory.BAKERY,
+                    quantity: secondItemQuantity,
+                    remainingQuantity: secondItemQuantity,
+                    unit: 'un',
+                  },
+                ]
+              : []),
           ],
         },
       },
-      include: { items: true },
+      include: { items: { orderBy: { foodName: 'asc' } } },
     });
     createdListIds.push(list.id);
     return list;
@@ -153,6 +172,8 @@ describe('ReservationsService - concorrência de reserva por item', () => {
 
   afterAll(async () => {
     await prisma.pickup.deleteMany({ where: { reservation: { donationListId: { in: createdListIds } } } });
+    await prisma.message.deleteMany({ where: { conversation: { donationListId: { in: createdListIds } } } });
+    await prisma.conversation.deleteMany({ where: { donationListId: { in: createdListIds } } });
     await prisma.reservationItem.deleteMany({ where: { reservation: { donationListId: { in: createdListIds } } } });
     await prisma.reservation.deleteMany({ where: { donationListId: { in: createdListIds } } });
     await prisma.donationItem.deleteMany({ where: { donationListId: { in: createdListIds } } });
@@ -181,7 +202,7 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     expect(rejected).toHaveLength(1);
 
     const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
-    expect(item.remainingQuantity).toBe(3);
+    expect(item.remainingQuantity.toNumber()).toBe(3);
   }, 30_000);
 
   it('quando duas reservas concorrentes cabem no disponível, ambas vencem', async () => {
@@ -198,7 +219,7 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
 
     const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
-    expect(item.remainingQuantity).toBe(0);
+    expect(item.remainingQuantity.toNumber()).toBe(0);
     expect(item.status).toBe('FULLY_RESERVED');
   }, 30_000);
 
@@ -211,4 +232,72 @@ describe('ReservationsService - concorrência de reserva por item', () => {
       service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 4 }] }),
     ).rejects.toMatchObject({ response: { code: 'PARTIAL_NOT_ALLOWED' } });
   });
+
+  // Regressão: item esgotado entrava no lock (o filtro era "!= CANCELLED"), a
+  // quantidade virava 0 e nascia uma reserva fantasma de 0 unidade — com código
+  // de retirada e conversa — que ainda impedia a lista de fechar.
+  it('não cria reserva de quantidade zero sobre item já esgotado', async () => {
+    const list = await createDonationList(1, true, 5);
+    const itemId = list.items[0].id;
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    await service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId }] });
+
+    await expect(
+      service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId }] }),
+    ).rejects.toMatchObject({ response: { code: 'ITEM_NOT_AVAILABLE' } });
+
+    const reservations = await prisma.reservation.findMany({
+      where: { donationListId: list.id },
+      include: { items: true },
+    });
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0].items.every((i) => i.quantity.toNumber() > 0)).toBe(true);
+  }, 30_000);
+
+  // Regressão: o cancelamento forçava a lista para OPEN sem olhar nada, então
+  // cancelar uma reserva de uma lista já expirada a ressuscitava com validade
+  // no passado.
+  it('cancelar reserva de lista expirada não reabre a doação', async () => {
+    const list = await createDonationList(10, true);
+    const itemId = list.items[0].id;
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    const reservation = await service.reserve(userA, {
+      donationListId: list.id,
+      items: [{ donationItemId: itemId, quantity: 4 }],
+    });
+
+    // Simula a lista tendo vencido enquanto a reserva estava ativa.
+    await prisma.donationList.update({
+      where: { id: list.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    await service.cancel(userA, reservation.id);
+
+    const [after, item] = await Promise.all([
+      prisma.donationList.findUniqueOrThrow({ where: { id: list.id } }),
+      prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } }),
+    ]);
+    expect(after.status).not.toBe('OPEN');
+    expect(item.status).toBe('EXPIRED');
+  }, 30_000);
+
+  // Regressão: com Float, somar/subtrair frações deixava resto binário e o item
+  // "zerado" ficava com 1e-17 disponível, nunca saindo de AVAILABLE.
+  it('reservas fracionadas zeram o item exatamente (sem resto de ponto flutuante)', async () => {
+    const list = await createDonationList(1, true);
+    const itemId = list.items[0].id;
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    await service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 0.7 }] });
+    await service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 0.3 }] });
+
+    const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.remainingQuantity.toNumber()).toBe(0);
+    expect(item.status).toBe('FULLY_RESERVED');
+  }, 30_000);
 });

@@ -1,13 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DonationItemStatus, DonationListStatus, OrganizationKind, ReservationStatus } from '@prisma/client';
+import {
+  ApprovalStatus,
+  DonationItemStatus,
+  DonationListStatus,
+  OrganizationKind,
+  Prisma,
+  ReservationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { haversineKm } from '../../common/geo';
 
 const MONTHS_BACK = 6;
+const MAX_NEARBY_CANDIDATES = 500;
 
-function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+export interface MonthlyRow {
+  month: string;
+  count: number;
+  quantity: number;
 }
 
 function lastNMonthKeys(n: number): string[] {
@@ -15,11 +26,22 @@ function lastNMonthKeys(n: number): string[] {
   const now = new Date();
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    keys.push(monthKey(d));
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
   return keys;
 }
 
+function monthsAgo(n: number): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() - (n - 1), 1);
+}
+
+/**
+ * As métricas são agregadas em SQL. Antes, cada painel carregava a tabela
+ * inteira de itens (com joins aninhados) para somar em JavaScript — não
+ * escalava e ainda produzia números errados (ex.: taxa de aproveitamento
+ * passando de 100%).
+ */
 @Injectable()
 export class DashboardService {
   constructor(
@@ -31,40 +53,60 @@ export class DashboardService {
     const link = await this.prisma.organizationUser.findFirst({
       where: { userId: user.id, organization: { kind: OrganizationKind.DONOR } },
     });
+    if (!link) return this.emptyDonorDashboard();
 
-    if (!link) {
-      return this.emptyDashboard();
-    }
+    const listWhere: Prisma.DonationListWhereInput = {
+      donorOrganizationId: link.organizationId,
+      deletedAt: null,
+    };
 
-    const items = await this.prisma.donationItem.findMany({
-      where: { donationList: { donorOrganizationId: link.organizationId, deletedAt: null } },
-      include: { reservationItems: { include: { reservation: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [statusGroups, offered, delivered, monthly, recentHistory] = await Promise.all([
+      this.prisma.donationItem.groupBy({
+        by: ['status'],
+        where: { donationList: listWhere },
+        _count: { _all: true },
+      }),
+      this.prisma.donationItem.aggregate({
+        where: { donationList: listWhere },
+        _sum: { quantity: true },
+      }),
+      this.prisma.reservationItem.aggregate({
+        where: {
+          reservation: { status: ReservationStatus.COMPLETED, donationList: listWhere },
+        },
+        _sum: { quantity: true },
+      }),
+      this.monthlySeries(link.organizationId),
+      this.prisma.donationItem.findMany({
+        where: { donationList: listWhere },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, foodName: true, status: true, quantity: true, unit: true, updatedAt: true },
+      }),
+    ]);
 
-    const totals = this.countByStatus(items);
-    const totalQuantityDonated = items.reduce((sum, item) => sum + this.completedQuantity(item), 0);
+    const totalQuantityOffered = offered._sum.quantity?.toNumber() ?? 0;
+    const totalQuantityDonated = delivered._sum.quantity?.toNumber() ?? 0;
 
     return {
-      totals,
+      totals: this.toStatusTotals(statusGroups),
       totalQuantityDonated,
-      monthly: this.buildMonthlySeries(
-        items.map((item) => ({ createdAt: item.createdAt, quantity: this.completedQuantity(item) })),
-      ),
-      recentHistory: items.slice(0, 10).map((item) => ({
-        id: item.id,
-        foodName: item.foodName,
-        status: item.status,
-        quantity: item.quantity,
-        unit: item.unit,
-        updatedAt: item.updatedAt,
-      })),
+      totalQuantityOffered,
+      // Aproveitamento por quantidade (não por contagem de itens): é o que não
+      // deixa a taxa ultrapassar 100% quando um item é retirado só em parte.
+      utilizationRatePercent:
+        totalQuantityOffered === 0
+          ? 0
+          : Math.round((totalQuantityDonated / totalQuantityOffered) * 1000) / 10,
+      monthly,
+      recentHistory,
     };
   }
 
   async getNgoDashboard(user: AuthenticatedUser) {
     const link = await this.prisma.organizationUser.findFirst({
       where: { userId: user.id, organization: { kind: OrganizationKind.NGO } },
+      include: { organization: { include: { address: true } } },
     });
 
     if (!link) {
@@ -77,32 +119,30 @@ export class DashboardService {
       };
     }
 
-    const [availableNearby, reservationItems] = await Promise.all([
-      this.prisma.donationItem.count({
-        where: {
-          status: DonationItemStatus.AVAILABLE,
-          donationList: { status: DonationListStatus.OPEN, expiresAt: { gt: new Date() }, deletedAt: null },
-        },
+    const reservationWhere: Prisma.ReservationWhereInput = { ngoOrganizationId: link.organizationId };
+
+    const [availableNearby, activeReservations, completedPickups, received, recentItems] = await Promise.all([
+      this.countAvailableNearby(link.organization),
+      this.prisma.reservation.count({ where: { ...reservationWhere, status: ReservationStatus.ACTIVE } }),
+      this.prisma.reservation.count({ where: { ...reservationWhere, status: ReservationStatus.COMPLETED } }),
+      this.prisma.reservationItem.aggregate({
+        where: { reservation: { ...reservationWhere, status: ReservationStatus.COMPLETED } },
+        _sum: { quantity: true },
       }),
       this.prisma.reservationItem.findMany({
-        where: { reservation: { ngoOrganizationId: link.organizationId } },
-        include: { reservation: true, donationItem: true },
-        orderBy: { id: 'desc' },
+        where: { reservation: reservationWhere },
+        include: { reservation: { select: { status: true, reservedAt: true } }, donationItem: true },
+        orderBy: { reservation: { reservedAt: 'desc' } },
+        take: 10,
       }),
     ]);
-
-    const activeReservations = new Set(
-      reservationItems.filter((ri) => ri.reservation.status === ReservationStatus.ACTIVE).map((ri) => ri.reservationId),
-    ).size;
-    const completed = reservationItems.filter((ri) => ri.reservation.status === ReservationStatus.COMPLETED);
-    const totalQuantityReceived = completed.reduce((sum, ri) => sum + ri.quantity, 0);
 
     return {
       availableNearby,
       activeReservations,
-      completedPickups: new Set(completed.map((ri) => ri.reservationId)).size,
-      totalQuantityReceived,
-      recentHistory: reservationItems.slice(0, 10).map((ri) => ({
+      completedPickups,
+      totalQuantityReceived: received._sum.quantity?.toNumber() ?? 0,
+      recentHistory: recentItems.map((ri) => ({
         id: ri.id,
         foodName: ri.donationItem.foodName,
         status: ri.reservation.status,
@@ -114,104 +154,166 @@ export class DashboardService {
   }
 
   async getAdminDashboard() {
-    const [donorCount, ngoCount, items, nodes] = await Promise.all([
+    const listWhere: Prisma.DonationListWhereInput = { deletedAt: null };
+
+    const [
+      donorCount,
+      ngoCount,
+      statusGroups,
+      offered,
+      delivered,
+      nodes,
+      monthly,
+      byCity,
+      byCategory,
+      topDonors,
+    ] = await Promise.all([
       this.prisma.organization.count({ where: { kind: OrganizationKind.DONOR, deletedAt: null } }),
       this.prisma.organization.count({ where: { kind: OrganizationKind.NGO, deletedAt: null } }),
-      this.prisma.donationItem.findMany({
-        where: { donationList: { deletedAt: null } },
-        include: {
-          donationList: { include: { donorOrganization: { include: { address: true } } } },
-          reservationItems: { include: { reservation: true } },
-        },
+      this.prisma.donationItem.groupBy({
+        by: ['status'],
+        where: { donationList: listWhere },
+        _count: { _all: true },
+      }),
+      this.prisma.donationItem.aggregate({ where: { donationList: listWhere }, _sum: { quantity: true } }),
+      this.prisma.reservationItem.aggregate({
+        where: { reservation: { status: ReservationStatus.COMPLETED } },
+        _sum: { quantity: true },
       }),
       this.prisma.node.findMany(),
+      this.monthlySeries(),
+      this.prisma.$queryRaw<{ city: string; count: number }[]>`
+        SELECT a.city, COUNT(*)::int AS count
+        FROM donation_items di
+        JOIN donation_lists dl ON dl.id = di."donationListId"
+        JOIN organizations o ON o.id = dl."donorOrganizationId"
+        JOIN addresses a ON a.id = o."addressId"
+        WHERE dl."deletedAt" IS NULL
+        GROUP BY a.city
+        ORDER BY count DESC`,
+      this.prisma.donationItem.groupBy({
+        by: ['category'],
+        where: { donationList: listWhere },
+        _count: { _all: true },
+      }),
+      this.prisma.$queryRaw<{ name: string; count: number }[]>`
+        SELECT o."tradeName" AS name, COUNT(*)::int AS count
+        FROM donation_items di
+        JOIN donation_lists dl ON dl.id = di."donationListId"
+        JOIN organizations o ON o.id = dl."donorOrganizationId"
+        WHERE dl."deletedAt" IS NULL
+        GROUP BY o.id, o."tradeName"
+        ORDER BY count DESC
+        LIMIT 5`,
     ]);
 
-    const totals = this.countByStatus(items);
-    const totalQuantityDonated = items.reduce((sum, item) => sum + this.completedQuantity(item), 0);
-    const completedCount = items.filter((item) => this.completedQuantity(item) > 0).length;
-
+    const totals = this.toStatusTotals(statusGroups);
+    const totalQuantityOffered = offered._sum.quantity?.toNumber() ?? 0;
+    const totalQuantityDonated = delivered._sum.quantity?.toNumber() ?? 0;
     const now = Date.now();
-    const nodesOnline = nodes.filter(
-      (n) => n.lastHeartbeat && now - n.lastHeartbeat.getTime() < 45_000,
-    ).length;
-
-    const byCity = new Map<string, number>();
-    const byCategory = new Map<string, number>();
-    const byDonor = new Map<string, { name: string; count: number }>();
-    for (const item of items) {
-      const city = item.donationList.donorOrganization.address.city;
-      byCity.set(city, (byCity.get(city) ?? 0) + 1);
-      byCategory.set(item.category, (byCategory.get(item.category) ?? 0) + 1);
-      const key = item.donationList.donorOrganizationId;
-      const entry = byDonor.get(key) ?? { name: item.donationList.donorOrganization.tradeName, count: 0 };
-      entry.count += 1;
-      byDonor.set(key, entry);
-    }
-
-    const settledCount = items.filter(
-      (item) => item.status === DonationItemStatus.CANCELLED || item.status === DonationItemStatus.FULLY_RESERVED,
-    ).length;
-    const utilizationRate = settledCount === 0 ? 0 : Math.round((completedCount / settledCount) * 1000) / 10;
 
     return {
       totals: {
         donors: donorCount,
         ngos: ngoCount,
         donationsAvailable: totals.AVAILABLE,
-        donationsCompleted: completedCount,
-        donationsExpired: 0,
+        donationsCompleted: totals.FULLY_RESERVED,
+        donationsExpired: totals.EXPIRED,
+        donationsCancelled: totals.CANCELLED,
         totalQuantityDonated,
-        nodesOnline,
+        nodesOnline: nodes.filter((n) => n.lastHeartbeat && now - n.lastHeartbeat.getTime() < 45_000).length,
         nodesTotal: nodes.length,
       },
-      donationsByMonth: this.buildMonthlySeries(
-        items.map((item) => ({ createdAt: item.createdAt, quantity: this.completedQuantity(item) })),
-      ),
-      donationsByCity: [...byCity.entries()].map(([city, count]) => ({ city, count })).sort((a, b) => b.count - a.count),
-      donationsByCategory: [...byCategory.entries()].map(([category, count]) => ({ category, count })),
-      topDonors: [...byDonor.values()].sort((a, b) => b.count - a.count).slice(0, 5),
-      utilizationRatePercent: utilizationRate,
+      donationsByMonth: monthly,
+      donationsByCity: byCity,
+      donationsByCategory: byCategory.map((g) => ({ category: g.category, count: g._count._all })),
+      topDonors,
+      utilizationRatePercent:
+        totalQuantityOffered === 0
+          ? 0
+          : Math.round((totalQuantityDonated / totalQuantityOffered) * 1000) / 10,
     };
   }
 
-  private completedQuantity(item: {
-    reservationItems: { quantity: number; reservation: { status: ReservationStatus } }[];
+  /**
+   * "Disponível perto de mim" antes contava todos os itens da plataforma,
+   * ignorando distância apesar do nome. Agora respeita o raio da própria ONG.
+   */
+  private async countAvailableNearby(organization: {
+    notificationRadiusKm: number | null;
+    address: { latitude: number; longitude: number };
   }) {
-    return item.reservationItems
-      .filter((ri) => ri.reservation.status === ReservationStatus.COMPLETED)
-      .reduce((sum, ri) => sum + ri.quantity, 0);
+    const radiusKm = organization.notificationRadiusKm ?? this.config.get<number>('notifications.radiusKm') ?? 50;
+
+    const candidates = await this.prisma.donationItem.findMany({
+      where: {
+        status: DonationItemStatus.AVAILABLE,
+        donationList: {
+          status: DonationListStatus.OPEN,
+          expiresAt: { gt: new Date() },
+          deletedAt: null,
+          donorOrganization: { approvalStatus: ApprovalStatus.APPROVED },
+        },
+      },
+      select: {
+        id: true,
+        donationList: { select: { donorOrganization: { select: { address: true } } } },
+      },
+      take: MAX_NEARBY_CANDIDATES,
+    });
+
+    return candidates.filter((item) => {
+      const address = item.donationList.donorOrganization.address;
+      return (
+        haversineKm(
+          organization.address.latitude,
+          organization.address.longitude,
+          address.latitude,
+          address.longitude,
+        ) <= radiusKm
+      );
+    }).length;
   }
 
-  private countByStatus(items: { status: DonationItemStatus }[]) {
+  private async monthlySeries(donorOrganizationId?: string): Promise<MonthlyRow[]> {
+    const since = monthsAgo(MONTHS_BACK);
+    const rows = await this.prisma.$queryRaw<{ month: string; count: number; quantity: number }[]>`
+      SELECT to_char(date_trunc('month', di."createdAt"), 'YYYY-MM') AS month,
+             COUNT(DISTINCT di.id)::int AS count,
+             COALESCE(SUM(CASE WHEN r.status = 'COMPLETED' THEN ri.quantity ELSE 0 END), 0)::float8 AS quantity
+      FROM donation_items di
+      JOIN donation_lists dl ON dl.id = di."donationListId"
+      LEFT JOIN reservation_items ri ON ri."donationItemId" = di.id
+      LEFT JOIN reservations r ON r.id = ri."reservationId"
+      WHERE dl."deletedAt" IS NULL
+        AND di."createdAt" >= ${since}
+        AND (${donorOrganizationId ?? null}::text IS NULL OR dl."donorOrganizationId" = ${donorOrganizationId ?? null}::text)
+      GROUP BY 1`;
+
+    const byMonth = new Map(rows.map((r) => [r.month, r]));
+    return lastNMonthKeys(MONTHS_BACK).map(
+      (month) => byMonth.get(month) ?? { month, count: 0, quantity: 0 },
+    );
+  }
+
+  private toStatusTotals(groups: { status: DonationItemStatus; _count: { _all: number } }[]) {
     const totals: Record<DonationItemStatus, number> = {
       AVAILABLE: 0,
       FULLY_RESERVED: 0,
       CANCELLED: 0,
+      EXPIRED: 0,
     };
-    for (const item of items) totals[item.status] += 1;
+    for (const group of groups) totals[group.status] = group._count._all;
     return totals;
   }
 
-  private buildMonthlySeries(items: { createdAt: Date; quantity: number }[]) {
-    const keys = lastNMonthKeys(MONTHS_BACK);
-    const buckets = new Map(keys.map((k) => [k, { month: k, count: 0, quantity: 0 }]));
-    for (const item of items) {
-      const key = monthKey(item.createdAt);
-      const bucket = buckets.get(key);
-      if (bucket) {
-        bucket.count += 1;
-        bucket.quantity += item.quantity;
-      }
-    }
-    return keys.map((k) => buckets.get(k)!);
-  }
-
-  private emptyDashboard() {
+  private emptyDonorDashboard() {
     return {
-      totals: this.countByStatus([]),
+      totals: this.toStatusTotals([]),
       totalQuantityDonated: 0,
-      monthly: this.buildMonthlySeries([]),
+      totalQuantityOffered: 0,
+      utilizationRatePercent: 0,
+      monthly: lastNMonthKeys(MONTHS_BACK).map((month) => ({ month, count: 0, quantity: 0 })),
       recentHistory: [] as unknown[],
     };
   }

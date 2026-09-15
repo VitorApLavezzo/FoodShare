@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NodeStatus, SyncEventStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,8 +7,9 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const OFFLINE_THRESHOLD_MS = 45_000;
 
 @Injectable()
-export class NodesService implements OnModuleInit {
+export class NodesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NodesService.name);
+  private heartbeatTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -16,11 +17,24 @@ export class NodesService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.registerSelf();
-    setInterval(() => this.heartbeat().catch((err) => this.logger.error(err)), HEARTBEAT_INTERVAL_MS);
+    await this.upsertSelf();
+    this.logger.log(`Nó ${this.config.get<string>('node.id')} registrado/online`);
+    this.heartbeatTimer = setInterval(
+      () => this.upsertSelf().catch((err) => this.logger.error(err)),
+      HEARTBEAT_INTERVAL_MS,
+    );
   }
 
-  private async registerSelf() {
+  onModuleDestroy() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+  }
+
+  /**
+   * upsert (e não update) também no heartbeat: se o banco for recriado com o nó
+   * no ar — um reset em desenvolvimento, por exemplo — um update falharia com
+   * P2025 a cada 15s para sempre, e o nó apareceria offline no painel.
+   */
+  private async upsertSelf() {
     const code = this.config.get<string>('node.id')!;
     await this.prisma.node.upsert({
       where: { code },
@@ -36,15 +50,6 @@ export class NodesService implements OnModuleInit {
         status: NodeStatus.ONLINE,
         lastHeartbeat: new Date(),
       },
-    });
-    this.logger.log(`Nó ${code} registrado/online`);
-  }
-
-  private async heartbeat() {
-    const code = this.config.get<string>('node.id')!;
-    await this.prisma.node.update({
-      where: { code },
-      data: { status: NodeStatus.ONLINE, lastHeartbeat: new Date() },
     });
   }
 

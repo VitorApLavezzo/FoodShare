@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { DecimalSerializerInterceptor } from './common/interceptors/decimal-serializer.interceptor';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
 
 async function bootstrap() {
@@ -22,6 +23,7 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(new DecimalSerializerInterceptor());
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('FoodShare API')

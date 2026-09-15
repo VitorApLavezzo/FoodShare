@@ -1,25 +1,24 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
+import type Redis from 'ioredis';
 import { PrismaService } from '../../prisma/prisma.service';
-import Redis from 'ioredis';
 import { Public } from '../auth/decorators/public.decorator';
+import { REDIS_CLIENT } from '../../redis/redis.constants';
 
 @ApiTags('health')
 @Public()
+// Sondas de orquestrador batem com frequência: o limite global de 120/min faria
+// o health check falhar por rate limit justamente sob carga.
+@Throttle({ default: { limit: 600, ttl: 60_000 } })
 @Controller()
 export class HealthController {
-  private readonly redis: Redis;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-  ) {
-    this.redis = new Redis(this.config.get<string>('redisUrl')!, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-    });
-  }
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {}
 
   @Get('health')
   @ApiOperation({ summary: 'Liveness: o processo está de pé.' })
@@ -31,6 +30,11 @@ export class HealthController {
     };
   }
 
+  /**
+   * Responde 503 quando alguma dependência está fora — orquestrador olha o
+   * status HTTP, não o corpo: com 200 fixo, um nó degradado continuava
+   * recebendo tráfego normalmente.
+   */
   @Get('ready')
   @ApiOperation({ summary: 'Readiness: dependências (DB, Redis) estão saudáveis.' })
   async ready() {
@@ -44,21 +48,20 @@ export class HealthController {
     }
 
     try {
-      await this.redis.connect();
       await this.redis.ping();
       checks.redis = true;
     } catch {
       checks.redis = false;
-    } finally {
-      this.redis.disconnect();
     }
 
-    const ok = checks.database && checks.redis;
-    return {
-      status: ok ? 'ok' : 'degraded',
+    const body = {
+      status: checks.database && checks.redis ? 'ok' : 'degraded',
       nodeId: this.config.get('node.id'),
       checks,
       timestamp: new Date().toISOString(),
     };
+
+    if (body.status !== 'ok') throw new ServiceUnavailableException(body);
+    return body;
   }
 }

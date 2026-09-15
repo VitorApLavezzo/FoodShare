@@ -74,11 +74,16 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filters, setFilters] = useState<DonationFilterValues>({});
+  const [page, setPage] = useState(1);
 
   const query = useQuery({
-    queryKey: ['donations', mode, filters],
-    queryFn: () => fetchDonations(filters),
+    queryKey: ['donations', mode, filters, page],
+    queryFn: () => fetchDonations({ ...filters, page }),
   });
+
+  const total = query.data?.total ?? 0;
+  const limit = query.data?.limit ?? 20;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const cancelMutation = useMutation({
     mutationFn: cancelDonation,
@@ -109,7 +114,17 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
         </div>
       )}
 
-      {mode === 'available' && <DonationFilters value={filters} onChange={setFilters} />}
+      {mode === 'available' && (
+        <DonationFilters
+          value={filters}
+          onChange={(next) => {
+            // Novo filtro reinicia a paginação: senão o usuário pode cair numa
+            // página que não existe mais no resultado filtrado.
+            setPage(1);
+            setFilters(next);
+          }}
+        />
+      )}
 
       <QueryState
         isLoading={query.isLoading}
@@ -195,6 +210,27 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
           ))}
         </div>
       </QueryState>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3 text-sm text-neutral-500">
+          <span>
+            Página {page} de {totalPages} · {total} {total === 1 ? 'doação' : 'doações'}
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              Anterior
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Próxima
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

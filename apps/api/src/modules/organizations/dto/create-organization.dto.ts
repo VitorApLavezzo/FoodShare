@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsEmail,
   IsIn,
   IsInt,
@@ -9,7 +10,8 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { OrganizationType } from '@prisma/client';
+import { DonationCategory, OrganizationType } from '@prisma/client';
+import { DONATION_CATEGORIES } from '../../../common/enum-values';
 import { AddressDto } from './address.dto';
 import { IsCnpj } from '../../../common/validators/is-cnpj.validator';
 
@@ -70,6 +72,18 @@ export class CreateOrganizationDto {
   @IsInt()
   @Min(1)
   notificationRadiusKm?: number;
+
+  @ApiProperty({
+    required: false,
+    isArray: true,
+    enum: DONATION_CATEGORIES,
+    description:
+      'Categorias de alimento que interessam à ONG. Lista vazia (padrão) = recebe alerta de qualquer categoria.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsIn(DONATION_CATEGORIES, { each: true })
+  notificationCategories?: DonationCategory[];
 
   @ApiProperty({ type: AddressDto })
   @ValidateNested()

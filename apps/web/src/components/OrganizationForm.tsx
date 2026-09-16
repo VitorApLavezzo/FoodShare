@@ -157,6 +157,9 @@ export function OrganizationForm({
     const { street, number, neighborhood, city, state, zipCode, latitude, longitude, ...rest } = values;
     const input: CreateOrganizationInput = {
       ...rest,
+      // Com vários checkboxes de mesmo nome, o react-hook-form devolve `false`
+      // quando nenhum está marcado — a API espera sempre uma lista.
+      notificationCategories: Array.isArray(rest.notificationCategories) ? rest.notificationCategories : [],
       address: { street, number, neighborhood, city, state, zipCode, latitude, longitude },
     };
     try {

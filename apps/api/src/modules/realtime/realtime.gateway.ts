@@ -14,6 +14,7 @@ import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { SendMessageWsDto } from './dto/send-message.dto';
+import { ConversationRoomDto } from './dto/conversation-room.dto';
 
 // `Socket.data` é `any` por padrão: declarar o que guardamos ali é o que faz o
 // `userId` continuar verificado nos handlers.
@@ -108,6 +109,50 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    */
   broadcastDataChanged(eventType: string, entityId: string) {
     this.server.emit('data:changed', { eventType, entityId });
+  }
+
+  /**
+   * Quem está com o chat aberto entra na room da conversa. É isso que permite
+   * ao ChatService saber quem já está vendo a mensagem chegar na tela e não
+   * precisa de alerta no sino.
+   *
+   * A participação é conferida: entrar na room de uma conversa alheia não
+   * vazaria mensagem (a room só serve para suprimir aviso), mas suprimiria o
+   * alerta de quem tem direito a ele.
+   */
+  @SubscribeMessage('conversation:open')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async handleConversationOpen(@ConnectedSocket() client: Socket, @MessageBody() body: ConversationRoomDto) {
+    const userId = (client.data as Partial<SocketData>).userId;
+    if (!userId) return { ok: false, code: 'UNAUTHENTICATED' };
+
+    try {
+      await this.chatService.assertCanViewConversation(userId, body.conversationId);
+      await client.join(`conv:${body.conversationId}`);
+      return { ok: true };
+    } catch {
+      return { ok: false, code: 'FORBIDDEN_CONVERSATION_ACCESS' };
+    }
+  }
+
+  @SubscribeMessage('conversation:close')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async handleConversationClose(@ConnectedSocket() client: Socket, @MessageBody() body: ConversationRoomDto) {
+    await client.leave(`conv:${body.conversationId}`);
+    return { ok: true };
+  }
+
+  /**
+   * Quem está com esta conversa aberta neste instante, em qualquer nó —
+   * `fetchSockets` passa pelo adapter Redis, então alcança as abas conectadas
+   * nas outras instâncias da API.
+   */
+  async findUserIdsViewingConversation(conversationId: string): Promise<Set<string>> {
+    const sockets = await this.server.in(`conv:${conversationId}`).fetchSockets();
+    const userIds = sockets
+      .map((socket) => (socket.data as Partial<SocketData>).userId)
+      .filter((userId): userId is string => !!userId);
+    return new Set(userIds);
   }
 
   /**

@@ -69,6 +69,11 @@ export class ChatService {
     });
   }
 
+  /** Usada pelo gateway antes de deixar alguém entrar na room da conversa. */
+  async assertCanViewConversation(userId: string, conversationId: string) {
+    await this.assertParticipant(userId, conversationId);
+  }
+
   async findMessages(userId: string, conversationId: string) {
     await this.assertParticipant(userId, conversationId);
     return this.prisma.message.findMany({
@@ -141,7 +146,13 @@ export class ChatService {
       select: { userId: true },
     });
 
-    const recipientIds = [...new Set(links.map((link) => link.userId))];
+    // Quem está com o chat aberto vê a mensagem chegar pelo `message:new` e
+    // não precisa de alerta no sino — notificar aqui só produziria um aviso
+    // sobre algo que a pessoa está lendo naquele instante.
+    const viewing = await this.realtimeGateway.findUserIdsViewingConversation(conversation.id);
+    const recipientIds = [...new Set(links.map((link) => link.userId))].filter(
+      (userId) => !viewing.has(userId),
+    );
     if (recipientIds.length === 0) return;
 
     const title = `Nova mensagem de ${senderName}`;

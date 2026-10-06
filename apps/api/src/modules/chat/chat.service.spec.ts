@@ -13,7 +13,11 @@ describe('ChatService - autorização', () => {
     donationList: { donorOrganizationId: 'donor-1' },
   };
 
-  function buildService(organizationUserFindFirst: jest.Mock, members: { userId: string }[] = []) {
+  function buildService(
+    organizationUserFindFirst: jest.Mock,
+    members: { userId: string }[] = [],
+    viewing: string[] = [],
+  ) {
     const prisma = {
       conversation: { findUnique: jest.fn().mockResolvedValue(conversation) },
       organizationUser: {
@@ -40,7 +44,12 @@ describe('ChatService - autorização', () => {
         update: jest.fn().mockResolvedValue({ id: 'notif-1' }),
       },
     };
-    const gateway = { emitToOrganization: jest.fn(), emitToUser: jest.fn() };
+    const gateway = {
+      emitToOrganization: jest.fn(),
+      emitToUser: jest.fn(),
+      // Quem está com o painel de chat aberto naquele instante.
+      findUserIdsViewingConversation: jest.fn().mockResolvedValue(new Set(viewing)),
+    };
     return {
       service: new ChatService(prisma as never, gateway as never),
       prisma,
@@ -116,6 +125,30 @@ describe('ChatService - autorização', () => {
     const { service, prisma } = buildService(linkedTo('ngo-1'), []);
     await service.sendMessage('user-1', 'conv-1', 'combinado');
     expect(prisma.notification.create).not.toHaveBeenCalled();
+  });
+
+  it('não notifica quem está com a conversa aberta', async () => {
+    const { service, prisma, gateway } = buildService(linkedTo('ngo-1'), [{ userId: 'user-2' }], ['user-2']);
+    await service.sendMessage('user-1', 'conv-1', 'combinado');
+
+    expect(prisma.notification.create).not.toHaveBeenCalled();
+    expect(gateway.emitToUser).not.toHaveBeenCalled();
+    // A mensagem em si continua chegando na tela de quem está lendo.
+    expect(gateway.emitToOrganization).toHaveBeenCalledWith('ngo-1', 'message:new', expect.anything());
+  });
+
+  it('notifica os destinatários que não estão com a conversa aberta', async () => {
+    const { service, prisma } = buildService(
+      linkedTo('ngo-1'),
+      [{ userId: 'user-2' }, { userId: 'user-3' }],
+      ['user-2'],
+    );
+    await service.sendMessage('user-1', 'conv-1', 'combinado');
+
+    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+    expect(prisma.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ userId: 'user-3' }) }),
+    );
   });
 
   it('rejeita conversa inexistente', async () => {

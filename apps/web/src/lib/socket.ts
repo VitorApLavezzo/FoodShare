@@ -46,6 +46,11 @@ export function onSocketEvent<T>(event: string, handler: (payload: T) => void): 
   };
 }
 
+/** Envio sem resposta: se o socket não está de pé, não há o que fazer. */
+export function emitSocketEvent(event: string, payload: unknown) {
+  ensureSocket()?.emit(event, payload);
+}
+
 /**
  * Envia esperando confirmação do servidor. Sem o ack, uma mensagem recusada
  * (sem permissão, validação) desaparecia silenciosamente — o campo de texto já

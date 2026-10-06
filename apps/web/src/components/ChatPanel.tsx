@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMessages, sendMessageRest, type Message } from '../lib/chat';
-import { emitWithAck, onSocketEvent } from '../lib/socket';
+import { emitSocketEvent, emitWithAck, onSocketEvent } from '../lib/socket';
 import { formatTime } from '../lib/format';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
@@ -19,6 +19,27 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
     queryKey: ['messages', conversationId],
     queryFn: () => fetchMessages(conversationId),
   });
+
+  /**
+   * Enquanto o painel está aberto, o servidor sabe disso e deixa de gerar
+   * notificação desta conversa para este usuário — a mensagem já chega na tela
+   * pelo `message:new` abaixo, e um aviso no sino sobre algo que a pessoa está
+   * lendo naquele instante é só ruído.
+   *
+   * O reenvio no `connect` cobre a reconexão: o socket é recriado quando o
+   * token é renovado, e a entrada na room se perde junto com o anterior.
+   */
+  useEffect(() => {
+    emitSocketEvent('conversation:open', { conversationId });
+    const unsubscribeConnect = onSocketEvent('connect', () => {
+      emitSocketEvent('conversation:open', { conversationId });
+    });
+
+    return () => {
+      unsubscribeConnect();
+      emitSocketEvent('conversation:close', { conversationId });
+    };
+  }, [conversationId]);
 
   useEffect(() => {
     return onSocketEvent<Message>('message:new', (message) => {

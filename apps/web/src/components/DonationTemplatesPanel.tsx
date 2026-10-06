@@ -42,7 +42,7 @@ export function DonationTemplatesPanel() {
 
   const [name, setName] = useState('');
   const [foodName, setFoodName] = useState('');
-  const [category, setCategory] = useState<DonationCategory>('BAKERY');
+  const [category, setCategory] = useState<DonationCategory>('PREPARED_MEALS');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('un');
   const [recurrence, setRecurrence] = useState<DonationRecurrence>('DAILY');
@@ -104,7 +104,10 @@ export function DonationTemplatesPanel() {
       </div>
 
       {error && (
-        <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+        <p
+          role="alert"
+          className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
+        >
           {error}
         </p>
       )}
@@ -131,7 +134,12 @@ export function DonationTemplatesPanel() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>Alimento</label>
-              <input className={inputClass} value={foodName} onChange={(e) => setFoodName(e.target.value)} required />
+              <input
+                className={inputClass}
+                value={foodName}
+                onChange={(e) => setFoodName(e.target.value)}
+                required
+              />
             </div>
             <div>
               <label className={labelClass}>Categoria</label>
@@ -231,7 +239,9 @@ export function DonationTemplatesPanel() {
                 <div>
                   <p className="font-medium text-neutral-900 dark:text-white">
                     {template.name}{' '}
-                    {!template.isActive && <span className="text-xs font-normal text-neutral-500">(pausada)</span>}
+                    {!template.isActive && (
+                      <span className="text-xs font-normal text-neutral-500">(pausada)</span>
+                    )}
                   </p>
                   <p className="text-sm text-neutral-500">
                     {describeSchedule(template)} · {template.items.map((i) => i.foodName).join(', ')}

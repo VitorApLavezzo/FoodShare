@@ -27,6 +27,8 @@ import { recomputeDonationListStatus } from '../donations/donation-list-status';
 // explicitamente evita depender de como o driver mapeia NUMERIC.
 interface LockedItemRow {
   id: string;
+  foodName: string;
+  unit: string;
   remainingQuantity: string;
   status: DonationItemStatus;
 }
@@ -55,7 +57,10 @@ export class ReservationsService {
 
     const itemIds = dto.items.map((i) => i.donationItemId);
     if (new Set(itemIds).size !== itemIds.length) {
-      throw new BadRequestException({ code: 'DUPLICATE_ITEM', message: 'Item duplicado no pedido.' });
+      throw new BadRequestException({
+        code: 'DUPLICATE_ITEM',
+        message: 'Item duplicado no pedido.',
+      });
     }
 
     // Tudo que decide a reserva (status da lista, validade, disponibilidade e a
@@ -66,10 +71,16 @@ export class ReservationsService {
         where: { id: dto.donationListId, deletedAt: null },
       });
       if (!donationList) {
-        throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
+        throw new NotFoundException({
+          code: 'DONATION_NOT_FOUND',
+          message: 'Doação não encontrada.',
+        });
       }
       if (donationList.expiresAt <= new Date()) {
-        throw new ConflictException({ code: 'DONATION_EXPIRED', message: 'Esta doação já expirou.' });
+        throw new ConflictException({
+          code: 'DONATION_EXPIRED',
+          message: 'Esta doação já expirou.',
+        });
       }
       if (donationList.status !== DonationListStatus.OPEN) {
         throw new ConflictException({
@@ -82,7 +93,7 @@ export class ReservationsService {
       // lock, então pedir um item já reservado falha aqui em vez de virar uma
       // reserva de quantidade zero.
       const rows = await tx.$queryRaw<LockedItemRow[]>(
-        Prisma.sql`SELECT id, "remainingQuantity"::text AS "remainingQuantity", status
+        Prisma.sql`SELECT id, "foodName", unit, "remainingQuantity"::text AS "remainingQuantity", status
                    FROM donation_items
                    WHERE id = ANY(${itemIds})
                      AND "donationListId" = ${donationList.id}
@@ -102,17 +113,20 @@ export class ReservationsService {
         const remaining = new Prisma.Decimal(row.remainingQuantity);
         const wanted = requested.quantity !== undefined ? new Prisma.Decimal(requested.quantity) : remaining;
 
+        // A mensagem identifica o alimento pelo nome, não pelo id: o texto vai
+        // direto para a tela da ONG, e um uuid ali não diz nada a quem está
+        // tentando entender qual item precisa ajustar.
         if (wanted.lte(0)) {
           throw new BadRequestException({
             code: 'INVALID_QUANTITY',
-            message: 'A quantidade reservada deve ser maior que zero.',
+            message: `A quantidade reservada de "${row.foodName}" deve ser maior que zero.`,
             itemId: row.id,
           });
         }
         if (wanted.gt(remaining)) {
           throw new ConflictException({
             code: 'INSUFFICIENT_QUANTITY',
-            message: `Quantidade indisponível para o item ${row.id}.`,
+            message: `Só restam ${remaining.toString()} ${row.unit} de "${row.foodName}" — ajuste a quantidade.`,
             itemId: row.id,
             available: remaining.toNumber(),
           });
@@ -164,7 +178,11 @@ export class ReservationsService {
       // commit e a publicação, o cron de reenvio ainda encontra a linha.
       await this.syncService.publishEvent('DONATION_RESERVED', donationList.id, reservation, tx);
 
-      return { reservation, conversation, donorOrganizationId: donationList.donorOrganizationId };
+      return {
+        reservation,
+        conversation,
+        donorOrganizationId: donationList.donorOrganizationId,
+      };
     });
 
     // Efeitos colaterais best-effort: a reserva já commitou, então uma falha
@@ -199,6 +217,11 @@ export class ReservationsService {
         donorOrganizationId,
         ngoOrganizationId,
       });
+      // O evento de sincronização desta reserva foi gravado dentro da transação
+      // e só vai para o stream no próximo ciclo do cron. O aviso para as telas
+      // não pode esperar isso: sem ele, o saldo do item continuaria o antigo na
+      // tela do doador por até 30s.
+      this.syncService.broadcastChange('DONATION_RESERVED', reservation.donationListId);
     } catch (err) {
       this.logger.error(
         `Efeito pós-commit da reserva ${reservation.id} falhou (a reserva foi criada normalmente).`,
@@ -214,12 +237,18 @@ export class ReservationsService {
         include: { items: true },
       });
       if (!reservation) {
-        throw new NotFoundException({ code: 'RESERVATION_NOT_FOUND', message: 'Reserva não encontrada.' });
+        throw new NotFoundException({
+          code: 'RESERVATION_NOT_FOUND',
+          message: 'Reserva não encontrada.',
+        });
       }
 
       if (user.role !== 'ADMIN') {
         const isOwner = await tx.organizationUser.findFirst({
-          where: { userId: user.id, organizationId: reservation.ngoOrganizationId },
+          where: {
+            userId: user.id,
+            organizationId: reservation.ngoOrganizationId,
+          },
         });
         if (!isOwner) {
           throw new ForbiddenException({
@@ -293,10 +322,16 @@ export class ReservationsService {
       if (user.role !== 'ADMIN') {
         const [isDonorOwner, isNgoOwner] = await Promise.all([
           tx.organizationUser.findFirst({
-            where: { userId: user.id, organizationId: reservation.donationList.donorOrganizationId },
+            where: {
+              userId: user.id,
+              organizationId: reservation.donationList.donorOrganizationId,
+            },
           }),
           tx.organizationUser.findFirst({
-            where: { userId: user.id, organizationId: reservation.ngoOrganizationId },
+            where: {
+              userId: user.id,
+              organizationId: reservation.ngoOrganizationId,
+            },
           }),
         ]);
         if (!isDonorOwner && !isNgoOwner) {
@@ -308,7 +343,11 @@ export class ReservationsService {
       }
 
       const pickup = await tx.pickup.create({
-        data: { reservationId: reservation.id, confirmedByUserId: user.id, nodeId: user.nodeId },
+        data: {
+          reservationId: reservation.id,
+          confirmedByUserId: user.id,
+          nodeId: user.nodeId,
+        },
       });
 
       await tx.reservation.update({
@@ -316,7 +355,11 @@ export class ReservationsService {
         data: { status: ReservationStatus.COMPLETED },
       });
       await tx.organization.updateMany({
-        where: { id: { in: [reservation.ngoOrganizationId, reservation.donationList.donorOrganizationId] } },
+        where: {
+          id: {
+            in: [reservation.ngoOrganizationId, reservation.donationList.donorOrganizationId],
+          },
+        },
         data: { completedPickupCount: { increment: 1 } },
       });
 
@@ -347,23 +390,19 @@ export class ReservationsService {
       conversation: true,
     } as const;
 
-    let reservations;
-    if (user.role === 'ADMIN') {
-      reservations = await this.prisma.reservation.findMany({ include, orderBy: { createdAt: 'desc' } });
-    } else if (user.role === 'NGO') {
-      reservations = await this.prisma.reservation.findMany({
-        where: { ngoOrganization: { users: { some: { userId: user.id } } } },
-        include,
-        orderBy: { createdAt: 'desc' },
-      });
-    } else {
-      // DONOR: reservas feitas sobre as próprias doações.
-      reservations = await this.prisma.reservation.findMany({
-        where: { donationList: { donorOrganization: { users: { some: { userId: user.id } } } } },
-        include,
-        orderBy: { createdAt: 'desc' },
-      });
-    }
+    const where: Prisma.ReservationWhereInput =
+      user.role === 'ADMIN'
+        ? {}
+        : user.role === 'NGO'
+          ? { ngoOrganization: { users: { some: { userId: user.id } } } }
+          : // DONOR: reservas feitas sobre as próprias doações.
+            { donationList: { donorOrganization: { users: { some: { userId: user.id } } } } };
+
+    const reservations = await this.prisma.reservation.findMany({
+      where,
+      include,
+      orderBy: { createdAt: 'desc' },
+    });
 
     return reservations.map(({ conversation, ...reservation }) => ({
       ...reservation,
@@ -381,7 +420,9 @@ export class ReservationsService {
     items: { donationItemId: string; quantity: Prisma.Decimal }[];
   }) {
     await this.prisma.$transaction(async (tx) => {
-      const current = await tx.reservation.findUnique({ where: { id: reservation.id } });
+      const current = await tx.reservation.findUnique({
+        where: { id: reservation.id },
+      });
       if (!current || current.status !== ReservationStatus.ACTIVE) return;
 
       await tx.reservation.update({
@@ -411,14 +452,16 @@ export class ReservationsService {
   ) {
     const itemIds = items.map((i) => i.donationItemId);
     const locked = await tx.$queryRaw<LockedItemRow[]>(
-      Prisma.sql`SELECT id, "remainingQuantity"::text AS "remainingQuantity", status
+      Prisma.sql`SELECT id, "foodName", unit, "remainingQuantity"::text AS "remainingQuantity", status
                  FROM donation_items
                  WHERE id = ANY(${itemIds})
                  ORDER BY id
                  FOR UPDATE`,
     );
 
-    const list = await tx.donationList.findUniqueOrThrow({ where: { id: donationListId } });
+    const list = await tx.donationList.findUniqueOrThrow({
+      where: { id: donationListId },
+    });
     const listIsOver =
       list.expiresAt <= new Date() ||
       list.status === DonationListStatus.CANCELLED ||
@@ -454,7 +497,11 @@ export class ReservationsService {
   private async assertCoversAllAvailableItems(
     tx: Prisma.TransactionClient,
     donationListId: string,
-    requested: { donationItemId: string; quantity: Prisma.Decimal; remaining: Prisma.Decimal }[],
+    requested: {
+      donationItemId: string;
+      quantity: Prisma.Decimal;
+      remaining: Prisma.Decimal;
+    }[],
   ) {
     const availableItems = await tx.donationItem.findMany({
       where: { donationListId, status: DonationItemStatus.AVAILABLE },
@@ -467,7 +514,8 @@ export class ReservationsService {
     if (!coversAll) {
       throw new ConflictException({
         code: 'PARTIAL_NOT_ALLOWED',
-        message: 'O doador não permite aceite parcial: é preciso reservar todos os itens disponíveis da lista.',
+        message:
+          'O doador não permite aceite parcial: é preciso reservar todos os itens disponíveis da lista.',
       });
     }
 

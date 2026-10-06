@@ -26,7 +26,12 @@ describe('NotificationsService - raio de proximidade', () => {
           ngos.map((n) => ({
             ...n,
             notificationCategories: n.notificationCategories ?? [],
-            users: [{ userId: `user-${n.id}`, user: { email: `${n.id}@t.com`, emailVerifiedAt: new Date() } }],
+            users: [
+              {
+                userId: `user-${n.id}`,
+                user: { email: `${n.id}@t.com`, emailVerifiedAt: new Date() },
+              },
+            ],
           })),
         ),
       },
@@ -37,7 +42,9 @@ describe('NotificationsService - raio de proximidade', () => {
         }),
       },
     };
-    const config = { get: jest.fn((key: string) => (key === 'notifications.radiusKm' ? 50 : 'http://web.test')) };
+    const config = {
+      get: jest.fn((key: string) => (key === 'notifications.radiusKm' ? 50 : 'http://web.test')),
+    };
     const gateway = { emitToUser: jest.fn() };
     const mail = { send: jest.fn().mockResolvedValue(true) };
     const service = new NotificationsService(
@@ -51,7 +58,7 @@ describe('NotificationsService - raio de proximidade', () => {
 
   const donationList = {
     id: 'list-1',
-    items: [{ category: 'FRUITS', foodName: 'Banana' }],
+    items: [{ category: 'NATURAL_FOODS', foodName: 'Banana' }],
   } as never;
 
   it('avisa a ONG dentro do raio padrão', async () => {
@@ -89,15 +96,25 @@ describe('NotificationsService - raio de proximidade', () => {
 
   it('respeita as categorias de interesse da ONG', async () => {
     const { service, created } = buildService([
-      { id: 'so-padaria', notificationRadiusKm: null, address: perto, notificationCategories: ['BAKERY'] },
+      {
+        id: 'so-preparados',
+        notificationRadiusKm: null,
+        address: perto,
+        notificationCategories: ['PREPARED_MEALS'],
+      },
     ]);
-    await service.notifyNearbyNgos(donationList, 'addr-1'); // doação é FRUITS
+    await service.notifyNearbyNgos(donationList, 'addr-1'); // doação é NATURAL_FOODS
     expect(created).toHaveLength(0);
   });
 
   it('sem categorias declaradas, a ONG recebe alerta de qualquer alimento', async () => {
     const { service, created } = buildService([
-      { id: 'tudo', notificationRadiusKm: null, address: perto, notificationCategories: [] },
+      {
+        id: 'tudo',
+        notificationRadiusKm: null,
+        address: perto,
+        notificationCategories: [],
+      },
     ]);
     await service.notifyNearbyNgos(donationList, 'addr-1');
     expect(created).toHaveLength(1);
@@ -107,7 +124,10 @@ describe('NotificationsService - raio de proximidade', () => {
     const { service, mail } = buildService([{ id: 'perto', notificationRadiusKm: null, address: perto }]);
     await service.notifyNearbyNgos(donationList, 'addr-1');
     expect(mail.send).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'perto@t.com', text: expect.stringContaining('/doacoes/list-1') }),
+      expect.objectContaining({
+        to: 'perto@t.com',
+        text: expect.stringContaining('/doacoes/list-1'),
+      }),
     );
   });
 });

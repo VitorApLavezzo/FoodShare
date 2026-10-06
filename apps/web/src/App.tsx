@@ -4,6 +4,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { useLiveUpdates } from './lib/live-updates';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -27,12 +28,19 @@ function RouteFallback() {
   return <p className="p-6 text-sm text-neutral-500">Carregando…</p>;
 }
 
+/** Assina os avisos de mudança uma única vez, para toda a aplicação. */
+function LiveUpdates() {
+  useLiveUpdates();
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <ToastProvider>
           <AuthProvider>
+            <LiveUpdates />
             <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/" element={<HomePage />} />

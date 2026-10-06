@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Redis from 'ioredis';
@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { Prisma, SyncEventStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { requestContext } from '../../common/request-context';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 const STREAM_KEY = 'foodshare:sync-stream';
 const CURSOR_KEY_PREFIX = 'foodshare:sync-cursor:';
@@ -56,6 +57,8 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => RealtimeGateway))
+    private readonly realtimeGateway: RealtimeGateway,
   ) {
     const redisUrl = this.config.get<string>('redisUrl')!;
     this.publisher = new Redis(redisUrl);
@@ -64,7 +67,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     this.cursorKey = `${CURSOR_KEY_PREFIX}${this.nodeId}`;
   }
 
-  async onModuleInit() {
+  onModuleInit() {
     this.running = true;
     this.readLoopPromise = this.readLoop();
     this.logger.log(`Consumidor de sincronização iniciado (stream "${STREAM_KEY}")`);
@@ -85,12 +88,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
    * entrega em si é feita fora da transação; se falhar, o cron de reenvio
    * encontra a linha PENDING/FAILED e tenta de novo.
    */
-  async publishEvent(
-    eventType: string,
-    entityId: string,
-    payload: unknown,
-    tx?: Prisma.TransactionClient,
-  ) {
+  async publishEvent(eventType: string, entityId: string, payload: unknown, tx?: Prisma.TransactionClient) {
     const client = tx ?? this.prisma;
     const event = await client.syncEvent.create({
       data: {
@@ -119,6 +117,24 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Manda as abas abertas recarregarem o que estão mostrando. Separado da
+   * entrega no stream porque os dois têm tempos diferentes: um evento publicado
+   * dentro de uma transação só vai para o stream no próximo ciclo do cron, e
+   * esperar até 30s para a tela se atualizar não serve — quem publica assim
+   * chama este método logo depois do commit.
+   *
+   * Nunca lança: a tela desatualizada é um incômodo, não motivo para derrubar
+   * a operação que já foi concluída.
+   */
+  broadcastChange(eventType: string, entityId: string) {
+    try {
+      this.realtimeGateway.broadcastDataChanged(eventType, entityId);
+    } catch (err) {
+      this.logger.warn(`Falha ao avisar as telas sobre ${eventType}: ${(err as Error).message}`);
+    }
+  }
+
   private async attemptDelivery(rowId: string, eventId: string, message: SyncEventPayload) {
     try {
       await this.publisher.xadd(STREAM_KEY, '*', 'data', JSON.stringify(message));
@@ -126,6 +142,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
         where: { id: rowId },
         data: { status: SyncEventStatus.SYNCED, syncedAt: new Date() },
       });
+      this.broadcastChange(message.eventType, message.entityId);
     } catch (err) {
       this.logger.warn(`Falha ao publicar evento ${eventId}: ${(err as Error).message}`);
       await this.prisma.syncEvent.update({
@@ -157,7 +174,7 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
           cursor = entryId;
           const dataIndex = fields.indexOf('data');
           if (dataIndex !== -1 && fields[dataIndex + 1]) {
-            await this.handleIncoming(fields[dataIndex + 1]);
+            this.handleIncoming(fields[dataIndex + 1]);
           }
         }
         await this.reader.set(this.cursorKey, cursor);
@@ -169,10 +186,10 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async handleIncoming(raw: string) {
+  private handleIncoming(raw: string) {
     let message: SyncEventPayload;
     try {
-      message = JSON.parse(raw);
+      message = JSON.parse(raw) as SyncEventPayload;
     } catch {
       this.logger.warn('Mensagem de sincronização inválida (JSON malformado), descartada.');
       return;
@@ -227,9 +244,15 @@ export class SyncService implements OnModuleInit, OnModuleDestroy {
 
   async getStatus() {
     const [pending, synced, failed, lastSynced] = await Promise.all([
-      this.prisma.syncEvent.count({ where: { status: SyncEventStatus.PENDING } }),
-      this.prisma.syncEvent.count({ where: { status: SyncEventStatus.SYNCED } }),
-      this.prisma.syncEvent.count({ where: { status: SyncEventStatus.FAILED } }),
+      this.prisma.syncEvent.count({
+        where: { status: SyncEventStatus.PENDING },
+      }),
+      this.prisma.syncEvent.count({
+        where: { status: SyncEventStatus.SYNCED },
+      }),
+      this.prisma.syncEvent.count({
+        where: { status: SyncEventStatus.FAILED },
+      }),
       this.prisma.syncEvent.findFirst({
         where: { status: SyncEventStatus.SYNCED },
         orderBy: { syncedAt: 'desc' },

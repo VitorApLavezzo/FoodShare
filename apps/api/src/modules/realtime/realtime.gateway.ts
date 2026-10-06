@@ -15,6 +15,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { SendMessageWsDto } from './dto/send-message.dto';
 
+// `Socket.data` é `any` por padrão: declarar o que guardamos ali é o que faz o
+// `userId` continuar verificado nos handlers.
+interface SocketData {
+  userId: string;
+}
+
 interface JwtPayload {
   sub: string;
   email: string;
@@ -29,7 +35,10 @@ interface JwtPayload {
 // A origem vem da mesma config do CORS HTTP: com `origin: true` qualquer site
 // conseguiria abrir um socket autenticado se tivesse o token.
 @WebSocketGateway({
-  cors: { origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173', credentials: true },
+  cors: {
+    origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+    credentials: true,
+  },
 })
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -64,10 +73,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         where: { userId: payload.sub },
         select: { organizationId: true },
       });
-      await Promise.all(orgLinks.map((link) => client.join(`org:${link.organizationId}`)));
+      for (const link of orgLinks) {
+        await client.join(`org:${link.organizationId}`);
+      }
 
-      client.data.userId = payload.sub;
-    } catch (err) {
+      (client.data as SocketData).userId = payload.sub;
+    } catch {
       this.logger.warn(`Conexão WS rejeitada (token inválido): ${client.id}`);
       client.disconnect();
     }
@@ -86,14 +97,34 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /**
+   * Avisa todas as abas abertas de que um dado de domínio mudou, para que elas
+   * recarreguem sozinhas em vez de depender de F5 ou do polling de 60s.
+   *
+   * Vai para todo mundo (sem room) de propósito: o payload é só o tipo do
+   * evento e o id da entidade — uma dica de "recarregue o que está na tela",
+   * não o dado em si. Quem recebe continua enxergando apenas o que os
+   * endpoints autorizam para ele. O adapter Redis replica isto para os demais
+   * nós, então uma mudança feita em Campinas atualiza a tela aberta em Limeira.
+   */
+  broadcastDataChanged(eventType: string, entityId: string) {
+    this.server.emit('data:changed', { eventType, entityId });
+  }
+
+  /**
    * Responde com ack ({ok}) em vez de silêncio: sem isso, um envio que falhava
    * (sem permissão, conversa inexistente, validação) sumia — o cliente já tinha
    * limpado o campo de texto e a mensagem se perdia sem aviso.
    */
   @SubscribeMessage('message:send')
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
   async handleMessageSend(@ConnectedSocket() client: Socket, @MessageBody() body: SendMessageWsDto) {
-    const userId = client.data.userId as string | undefined;
+    const userId = (client.data as Partial<SocketData>).userId;
     if (!userId) return { ok: false, code: 'UNAUTHENTICATED' };
 
     try {

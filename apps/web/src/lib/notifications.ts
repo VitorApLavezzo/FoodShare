@@ -10,6 +10,7 @@ export interface AppNotification {
   message: string;
   readAt?: string | null;
   donationListId?: string | null;
+  conversationId?: string | null;
   createdAt: string;
 }
 

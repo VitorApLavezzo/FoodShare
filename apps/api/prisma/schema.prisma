@@ -186,15 +186,14 @@ model OrganizationUser {
 
 // ---------- Doações ----------
 
+// Três categorias amplas, e não uma taxonomia fina: o doador classifica em
+// segundos e a ONG filtra alerta por algo que realmente muda a decisão de ir
+// buscar (comida pronta tem prazo de horas; natural, de dias; industrializada,
+// de meses).
 enum DonationCategory {
   PREPARED_MEALS
-  FRUITS
-  VEGETABLES
-  LEGUMES
   PACKAGED_GOODS
-  BAKERY
-  BEVERAGES
-  OTHER
+  NATURAL_FOODS
 }
 
 // Estados terminais: CANCELLED (doador desistiu), EXPIRED (venceu sem ser
@@ -372,7 +371,8 @@ model Conversation {
   donationList   DonationList @relation(fields: [donationListId], references: [id])
   createdAt      DateTime     @default(now())
 
-  messages Message[]
+  messages      Message[]
+  notifications Notification[]
 
   @@map("conversations")
 }
@@ -486,6 +486,7 @@ enum NotificationType {
   RESERVATION_DEADLINE_SOON
   DONATION_RESERVED
   PICKUP_CONFIRMED
+  NEW_MESSAGE
   GENERIC
 }
 
@@ -498,10 +499,16 @@ model Notification {
   message        String
   donationListId String?
   donationList   DonationList?    @relation(fields: [donationListId], references: [id], onDelete: Cascade)
+  // Alerta de mensagem nova aponta para a conversa, não só para a doação: é o
+  // que permite ao sino abrir o chat certo em vez de largar o usuário na tela
+  // de detalhe da doação, onde o chat nem aparece.
+  conversationId String?
+  conversation   Conversation?    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   readAt         DateTime?
   createdAt      DateTime         @default(now())
 
   @@index([userId, readAt])
   @@index([donationListId])
+  @@index([conversationId])
   @@map("notifications")
 }

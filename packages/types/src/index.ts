@@ -14,13 +14,8 @@
 
 export const DONATION_CATEGORY_LABEL = {
   PREPARED_MEALS: 'Alimentos preparados',
-  FRUITS: 'Frutas',
-  VEGETABLES: 'Verduras',
-  LEGUMES: 'Legumes',
-  PACKAGED_GOODS: 'Produtos industrializados',
-  BAKERY: 'Padaria',
-  BEVERAGES: 'Bebidas',
-  OTHER: 'Outros',
+  PACKAGED_GOODS: 'Alimentos industrializados',
+  NATURAL_FOODS: 'Alimentos naturais',
 } as const;
 
 export type DonationCategory = keyof typeof DONATION_CATEGORY_LABEL;
@@ -62,6 +57,7 @@ export const NOTIFICATION_TYPE_LABEL = {
   RESERVATION_DEADLINE_SOON: 'Prazo de retirada chegando',
   DONATION_RESERVED: 'Doação reservada',
   PICKUP_CONFIRMED: 'Retirada confirmada',
+  NEW_MESSAGE: 'Nova mensagem',
   GENERIC: 'Aviso',
 } as const;
 

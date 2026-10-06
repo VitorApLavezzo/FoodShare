@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   ApprovalStatus,
   DonationItemStatus,
@@ -11,6 +6,7 @@ import {
   DonationListStatus,
   OrganizationKind,
   Prisma,
+  ReservationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -20,9 +16,15 @@ import { QueryDonationsDto } from './dto/query-donations.dto';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { recomputeDonationListStatus } from './donation-list-status';
 
 const EDITABLE_STATUSES: DonationListStatus[] = [DonationListStatus.OPEN];
+// Cancelar vale também para a lista já toda comprometida: a comida é do doador,
+// e travar o cancelamento só porque alguém reservou deixava quem teve um
+// imprevisto (cozinha fechada, alimento que estragou) sem saída nenhuma.
+const CANCELLABLE_STATUSES: DonationListStatus[] = [
+  DonationListStatus.OPEN,
+  DonationListStatus.FULLY_RESERVED,
+];
 
 @Injectable()
 export class DonationsService {
@@ -94,7 +96,9 @@ export class DonationsService {
     // ADMIN: sem restrição de posse.
 
     if (query.city) {
-      donorOrganizationWhere.address = { city: { equals: query.city, mode: 'insensitive' } };
+      donorOrganizationWhere.address = {
+        city: { equals: query.city, mode: 'insensitive' },
+      };
     }
 
     const where: Prisma.DonationListWhereInput = {
@@ -119,7 +123,10 @@ export class DonationsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.donationList.findMany({
         where,
-        include: { donorOrganization: { include: { address: true } }, items: true },
+        include: {
+          donorOrganization: { include: { address: true } },
+          items: true,
+        },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -133,10 +140,16 @@ export class DonationsService {
   async findOne(user: AuthenticatedUser, id: string) {
     const donationList = await this.prisma.donationList.findFirst({
       where: { id, deletedAt: null },
-      include: { donorOrganization: { include: { address: true } }, items: true },
+      include: {
+        donorOrganization: { include: { address: true } },
+        items: true,
+      },
     });
     if (!donationList) {
-      throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
+      throw new NotFoundException({
+        code: 'DONATION_NOT_FOUND',
+        message: 'Doação não encontrada.',
+      });
     }
 
     if (user.role === 'ADMIN') return donationList;
@@ -190,38 +203,64 @@ export class DonationsService {
   }
 
   /**
-   * Cancela o que ainda não foi reservado. Se ninguém tinha reservado nada, a
-   * lista inteira é cancelada; se já havia reserva, só o saldo disponível sai
-   * do ar e os compromissos assumidos com as ONGs são preservados — antes o
-   * doador com a cozinha fechando simplesmente não tinha como retirar o
-   * restante da oferta.
+   * Tira a doação inteira do ar — inclusive o que já estava reservado.
+   *
+   * Antes o cancelamento só alcançava o saldo ainda disponível, para preservar
+   * o combinado com quem reservou; na prática isso deixava o doador preso a uma
+   * entrega que ele não tinha mais como honrar. A regra agora é a inversa e
+   * mais honesta: o doador cancela, as reservas ativas caem junto e cada ONG
+   * afetada é avisada na hora. A reserva cancelada pelo doador NÃO conta como
+   * falta da ONG (noShowCount), que não deu causa nenhuma.
    */
   async cancel(user: AuthenticatedUser, id: string) {
-    const donationList = await this.getOwnedEditableDonationList(user, id, { allowPartiallyReserved: true });
+    const donationList = await this.getOwnedEditableDonationList(user, id, {
+      allowPartiallyReserved: true,
+      statuses: CANCELLABLE_STATUSES,
+    });
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const { updated, affectedNgoIds } = await this.prisma.$transaction(async (tx) => {
+      const activeReservations = await tx.reservation.findMany({
+        where: {
+          donationListId: donationList.id,
+          status: ReservationStatus.ACTIVE,
+        },
+        select: { id: true, ngoOrganizationId: true },
+      });
+
+      if (activeReservations.length > 0) {
+        await tx.reservation.updateMany({
+          where: { id: { in: activeReservations.map((r) => r.id) } },
+          data: {
+            status: ReservationStatus.CANCELLED,
+            cancelledAt: new Date(),
+          },
+        });
+      }
+
+      // Nada volta para a prateleira: item reservado e item livre terminam os
+      // dois em CANCELLED, senão a lista cancelada reabriria sozinha.
       await tx.donationItem.updateMany({
-        where: { donationListId: donationList.id, status: DonationItemStatus.AVAILABLE },
+        where: {
+          donationListId: donationList.id,
+          status: {
+            in: [DonationItemStatus.AVAILABLE, DonationItemStatus.FULLY_RESERVED],
+          },
+        },
         data: { status: DonationItemStatus.CANCELLED },
       });
 
-      const hasActiveReservations =
-        (await tx.reservation.count({
-          where: { donationListId: donationList.id, status: 'ACTIVE' },
-        })) > 0;
-
-      if (hasActiveReservations) {
-        // Ainda há retirada pendente: o estado correto é "tudo comprometido",
-        // não "cancelada".
-        return recomputeDonationListStatus(tx, donationList.id).then(() =>
-          tx.donationList.findUniqueOrThrow({ where: { id: donationList.id } }),
-        );
-      }
-
-      return tx.donationList.update({
+      const updated = await tx.donationList.update({
         where: { id: donationList.id },
-        data: { status: DonationListStatus.CANCELLED, version: { increment: 1 } },
+        data: {
+          status: DonationListStatus.CANCELLED,
+          version: { increment: 1 },
+        },
       });
+
+      return {
+        updated,
+        affectedNgoIds: [...new Set(activeReservations.map((r) => r.ngoOrganizationId))],
+      };
     });
 
     await this.auditLogService.record({
@@ -236,6 +275,15 @@ export class DonationsService {
     });
     await this.syncService.publishEvent('DONATION_LIST_CANCELLED', updated.id, updated);
     await this.notificationsService.removeForDonationList(updated.id);
+    // Depois do removeForDonationList: ele limpa os alertas de "doação
+    // disponível" desta lista, e o aviso de cancelamento não pode ir junto.
+    if (affectedNgoIds.length > 0) {
+      await this.notificationsService.notifyReservationsCancelledByDonor(
+        updated.id,
+        affectedNgoIds,
+        donationList.items.map((item) => item.foodName).join(', '),
+      );
+    }
 
     return updated;
   }
@@ -243,14 +291,20 @@ export class DonationsService {
   private async getOwnedEditableDonationList(
     user: AuthenticatedUser,
     id: string,
-    options: { allowPartiallyReserved?: boolean } = {},
+    options: {
+      allowPartiallyReserved?: boolean;
+      statuses?: DonationListStatus[];
+    } = {},
   ) {
     const donationList = await this.prisma.donationList.findFirst({
       where: { id, deletedAt: null },
       include: { items: true },
     });
     if (!donationList) {
-      throw new NotFoundException({ code: 'DONATION_NOT_FOUND', message: 'Doação não encontrada.' });
+      throw new NotFoundException({
+        code: 'DONATION_NOT_FOUND',
+        message: 'Doação não encontrada.',
+      });
     }
 
     const isOwner = user.role === 'ADMIN' || (await this.isOwnerOfDonationList(user.id, donationList));
@@ -261,10 +315,11 @@ export class DonationsService {
       });
     }
 
-    if (!EDITABLE_STATUSES.includes(donationList.status)) {
+    const allowedStatuses = options.statuses ?? EDITABLE_STATUSES;
+    if (!allowedStatuses.includes(donationList.status)) {
       throw new BadRequestException({
         code: 'DONATION_NOT_EDITABLE',
-        message: 'Esta doação não pode mais ser alterada (já reservada, retirada ou encerrada).',
+        message: 'Esta doação não pode mais ser alterada (já retirada, cancelada ou encerrada).',
       });
     }
 
@@ -276,7 +331,8 @@ export class DonationsService {
     if (anyItemAlreadyReserved && !options.allowPartiallyReserved) {
       throw new BadRequestException({
         code: 'DONATION_PARTIALLY_RESERVED',
-        message: 'Esta lista já possui itens reservados e não pode mais ser alterada ou cancelada por inteiro.',
+        message:
+          'Esta lista já possui itens reservados e não pode mais ser alterada ou cancelada por inteiro.',
       });
     }
 

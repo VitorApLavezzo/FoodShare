@@ -1,4 +1,4 @@
-import { useState, type FocusEvent } from 'react';
+import { useCallback, useRef, useState, type FocusEvent } from 'react';
 import {
   DONATION_CATEGORY_LABEL,
   ORGANIZATION_TYPES,
@@ -15,10 +15,12 @@ import {
   type Organization,
 } from '../lib/organizations';
 import { getApiErrorMessage } from '../lib/api';
-import { fetchAddressByCep, geocodeAddress } from '../lib/cep';
+import { fetchAddressByCep, formatCep, geocodeAddress } from '../lib/cep';
 import { isValidCnpj, formatCnpj, fetchCnpjData } from '../lib/cnpj';
 import { InputField, SelectField, TextareaField } from './ui/Field';
 import { Button } from './ui/Button';
+
+const COORDINATE_REQUIRED = 'Não foi possível localizar este endereço no mapa — revise rua, número e cidade.';
 
 const schema = z.object({
   legalName: z.string().min(2, 'Informe a razão social.'),
@@ -38,11 +40,23 @@ const schema = z.object({
   city: z.string().min(2, 'Informe a cidade.'),
   state: z.string().min(2, 'Informe o estado (UF).'),
   zipCode: z.string().min(5, 'Informe o CEP.'),
-  latitude: z.coerce.number().min(-90).max(90),
-  longitude: z.coerce.number().min(-180).max(180),
+  // Preenchidas pela geocodificação, nunca digitadas: a mensagem de tipo é o
+  // que o usuário vê quando o endereço não foi localizado.
+  latitude: z.coerce.number({ invalid_type_error: COORDINATE_REQUIRED }).min(-90).max(90),
+  longitude: z.coerce.number({ invalid_type_error: COORDINATE_REQUIRED }).min(-180).max(180),
 });
 
 type FormValues = z.infer<typeof schema>;
+
+type LocationStatus = 'idle' | 'locating' | 'precise' | 'approximate' | 'failed';
+
+const LOCATION_HINT: Record<LocationStatus, string | undefined> = {
+  idle: 'Calculada automaticamente a partir do endereço.',
+  locating: 'Localizando o endereço no mapa…',
+  precise: 'Localização encontrada a partir do endereço informado.',
+  approximate: 'Ponto aproximado do CEP — preencha o número para localizar com precisão.',
+  failed: undefined,
+};
 
 export function OrganizationForm({
   kind,
@@ -58,12 +72,18 @@ export function OrganizationForm({
   const isEditing = !!organization;
   const [serverError, setServerError] = useState<string | null>(null);
   const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'not-found'>('idle');
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>(isEditing ? 'precise' : 'idle');
+  // Guarda o endereço já geocodificado: sair de cinco campos seguidos dispararia
+  // cinco buscas iguais no Nominatim, que limita a uma por segundo.
+  const lastGeocoded = useRef<string>('');
+
   const {
     register,
     handleSubmit,
     setValue,
     setFocus,
     getValues,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -85,12 +105,44 @@ export function OrganizationForm({
           neighborhood: organization.address.neighborhood,
           city: organization.address.city,
           state: organization.address.state,
-          zipCode: organization.address.zipCode,
+          zipCode: organization.address.zipCode ? formatCep(organization.address.zipCode) : undefined,
           latitude: organization.address.latitude,
           longitude: organization.address.longitude,
         }
       : undefined,
   });
+
+  /**
+   * Converte o endereço digitado em latitude/longitude. É a única coisa que
+   * escreve nesses dois campos — por isso eles são somente leitura: o ponto que
+   * decide o raio de alerta e a posição no mapa tem de vir do endereço de
+   * verdade, não de um número que alguém colou à mão.
+   */
+  const refreshCoordinates = useCallback(async () => {
+    const { street, number, neighborhood, city, state, zipCode } = getValues();
+    if (!street || !city || !state) return;
+
+    const signature = [street, number, neighborhood, city, state].join('|').toLowerCase();
+    if (signature === lastGeocoded.current) return;
+
+    setLocationStatus('locating');
+    const coordinates = await geocodeAddress({ street, number, neighborhood, city, state, zipCode });
+
+    if (coordinates) {
+      lastGeocoded.current = signature;
+      setValue('latitude', coordinates.latitude, { shouldValidate: true });
+      setValue('longitude', coordinates.longitude, { shouldValidate: true });
+      clearErrors(['latitude', 'longitude']);
+      setLocationStatus('precise');
+      return;
+    }
+
+    // Sem resultado: se o CEP já tinha deixado um ponto aproximado, o cadastro
+    // segue com ele em vez de travar por uma busca externa que não respondeu.
+    const fallback = getValues('latitude');
+    const hasFallback = typeof fallback === 'number' && !Number.isNaN(fallback);
+    setLocationStatus(hasFallback ? 'approximate' : 'failed');
+  }, [clearErrors, getValues, setValue]);
 
   const handleCepBlur = async (event: FocusEvent<HTMLInputElement>) => {
     const digits = event.target.value.replace(/\D/g, '');
@@ -111,7 +163,9 @@ export function OrganizationForm({
       if (address.latitude !== undefined && address.longitude !== undefined) {
         setValue('latitude', address.latitude, { shouldValidate: true });
         setValue('longitude', address.longitude, { shouldValidate: true });
+        setLocationStatus('approximate');
       }
+      await refreshCoordinates();
       setFocus('number');
     } catch {
       setCepStatus('not-found');
@@ -126,30 +180,47 @@ export function OrganizationForm({
     const data = await fetchCnpjData(digits);
     if (!data) return;
 
-    if (data.legalName && !getValues('legalName')) setValue('legalName', data.legalName, { shouldValidate: true });
-    if (data.tradeName && !getValues('tradeName')) setValue('tradeName', data.tradeName, { shouldValidate: true });
+    if (data.legalName && !getValues('legalName'))
+      setValue('legalName', data.legalName, { shouldValidate: true });
+    if (data.tradeName && !getValues('tradeName'))
+      setValue('tradeName', data.tradeName, { shouldValidate: true });
     if (data.phone && !getValues('phone')) setValue('phone', data.phone, { shouldValidate: true });
     if (data.email && !getValues('email')) setValue('email', data.email, { shouldValidate: true });
-    if (data.address) {
-      if (data.address.street && !getValues('street')) setValue('street', data.address.street, { shouldValidate: true });
-      if (data.address.number && !getValues('number')) setValue('number', data.address.number);
-      if (data.address.neighborhood && !getValues('neighborhood'))
-        setValue('neighborhood', data.address.neighborhood, { shouldValidate: true });
-      if (data.address.city && !getValues('city')) setValue('city', data.address.city, { shouldValidate: true });
-      if (data.address.state && !getValues('state')) setValue('state', data.address.state, { shouldValidate: true });
-      if (data.address.zipCode && !getValues('zipCode')) setValue('zipCode', data.address.zipCode, { shouldValidate: true });
-    }
-  };
+    if (!data.address) return;
 
-  const handleNumberBlur = async (event: FocusEvent<HTMLInputElement>) => {
-    const number = event.target.value.trim();
-    if (!number) return;
-    const { street, city, state } = getValues();
-    const coordinates = await geocodeAddress(street, number, city, state);
-    if (coordinates) {
-      setValue('latitude', coordinates.latitude, { shouldValidate: true });
-      setValue('longitude', coordinates.longitude, { shouldValidate: true });
+    const { street, number, neighborhood, city, state, zipCode } = data.address;
+    if (street && !getValues('street')) setValue('street', street, { shouldValidate: true });
+    if (number && !getValues('number')) setValue('number', number);
+    if (neighborhood && !getValues('neighborhood'))
+      setValue('neighborhood', neighborhood, { shouldValidate: true });
+    if (city && !getValues('city')) setValue('city', city, { shouldValidate: true });
+    if (state && !getValues('state')) setValue('state', state, { shouldValidate: true });
+    // A Receita devolve o CEP só com dígitos ("13480000"). Gravar assim deixava
+    // o campo fora do formato esperado e a busca por CEP nunca era disparada,
+    // então o resto do endereço ficava sem completar.
+    if (zipCode && !getValues('zipCode')) {
+      const formatted = formatCep(zipCode);
+      setValue('zipCode', formatted, { shouldValidate: true });
+
+      const digitsOnly = zipCode.replace(/\D/g, '');
+      if (digitsOnly.length === 8) {
+        const fromCep = await fetchAddressByCep(digitsOnly);
+        if (fromCep) {
+          if (!getValues('street')) setValue('street', fromCep.street, { shouldValidate: true });
+          if (!getValues('neighborhood'))
+            setValue('neighborhood', fromCep.neighborhood, { shouldValidate: true });
+          if (!getValues('city')) setValue('city', fromCep.city, { shouldValidate: true });
+          if (!getValues('state')) setValue('state', fromCep.state, { shouldValidate: true });
+          if (fromCep.latitude !== undefined && fromCep.longitude !== undefined) {
+            setValue('latitude', fromCep.latitude, { shouldValidate: true });
+            setValue('longitude', fromCep.longitude, { shouldValidate: true });
+            setLocationStatus('approximate');
+          }
+        }
+      }
     }
+
+    await refreshCoordinates();
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -175,11 +246,38 @@ export function OrganizationForm({
     }
   };
 
+  /** Campo de endereço que, ao perder o foco, remarca o ponto no mapa. */
+  const addressField = (name: 'street' | 'number' | 'neighborhood' | 'city' | 'state') => {
+    const { onBlur, ...field } = register(name);
+    return {
+      ...field,
+      onBlur: (event: FocusEvent<HTMLInputElement>) => {
+        onBlur(event);
+        void refreshCoordinates();
+      },
+    };
+  };
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+      <p className="text-xs text-neutral-500">
+        Campos marcados com <span className="font-medium text-red-600 dark:text-red-400">*</span> são
+        obrigatórios.
+      </p>
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <InputField label="Razão social" error={errors.legalName?.message} {...register('legalName')} />
-        <InputField label="Nome fantasia" error={errors.tradeName?.message} {...register('tradeName')} />
+        <InputField
+          required
+          label="Razão social"
+          error={errors.legalName?.message}
+          {...register('legalName')}
+        />
+        <InputField
+          required
+          label="Nome fantasia"
+          error={errors.tradeName?.message}
+          {...register('tradeName')}
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -187,6 +285,7 @@ export function OrganizationForm({
           const { onChange, onBlur, ...documentField } = register('document');
           return (
             <InputField
+              required
               label="CNPJ"
               placeholder="00.000.000/0000-00"
               maxLength={18}
@@ -253,8 +352,9 @@ export function OrganizationForm({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <InputField label="Telefone" error={errors.phone?.message} {...register('phone')} />
+        <InputField required label="Telefone" error={errors.phone?.message} {...register('phone')} />
         <InputField
+          required
           type="email"
           label="E-mail de contato"
           error={errors.email?.message}
@@ -262,7 +362,12 @@ export function OrganizationForm({
         />
       </div>
 
-      <InputField label="Responsável" error={errors.responsibleName?.message} {...register('responsibleName')} />
+      <InputField
+        required
+        label="Responsável"
+        error={errors.responsibleName?.message}
+        {...register('responsibleName')}
+      />
 
       <TextareaField label="Descrição (opcional)" rows={2} {...register('description')} />
 
@@ -272,12 +377,14 @@ export function OrganizationForm({
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             {(() => {
-              const { onBlur, ...zipCodeField } = register('zipCode');
+              const { onChange, onBlur, ...zipCodeField } = register('zipCode');
               return (
                 <InputField
+                  required
                   label="CEP"
                   placeholder="00000-000"
                   maxLength={9}
+                  inputMode="numeric"
                   error={errors.zipCode?.message}
                   hint={
                     cepStatus === 'loading'
@@ -286,6 +393,10 @@ export function OrganizationForm({
                         ? undefined
                         : 'Preenche o resto automaticamente.'
                   }
+                  onChange={(e) => {
+                    e.target.value = formatCep(e.target.value);
+                    onChange(e);
+                  }}
                   onBlur={(e) => {
                     onBlur(e);
                     handleCepBlur(e);
@@ -304,44 +415,55 @@ export function OrganizationForm({
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <div className="sm:col-span-2">
-            <InputField label="Rua" error={errors.street?.message} {...register('street')} />
+            <InputField required label="Rua" error={errors.street?.message} {...addressField('street')} />
           </div>
-          {(() => {
-            const { onBlur, ...numberField } = register('number');
-            return (
-              <InputField
-                label="Número"
-                onBlur={(e) => {
-                  onBlur(e);
-                  handleNumberBlur(e);
-                }}
-                {...numberField}
-              />
-            );
-          })()}
+          <InputField
+            label="Número"
+            hint="Deixa a localização no mapa mais precisa."
+            {...addressField('number')}
+          />
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <InputField label="Bairro" error={errors.neighborhood?.message} {...register('neighborhood')} />
-          <InputField label="Cidade" error={errors.city?.message} {...register('city')} />
-          <InputField label="Estado (UF)" maxLength={2} error={errors.state?.message} {...register('state')} />
+          <InputField
+            required
+            label="Bairro"
+            error={errors.neighborhood?.message}
+            {...addressField('neighborhood')}
+          />
+          <InputField required label="Cidade" error={errors.city?.message} {...addressField('city')} />
+          <InputField
+            required
+            label="Estado (UF)"
+            maxLength={2}
+            error={errors.state?.message}
+            {...addressField('state')}
+          />
         </div>
+
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <InputField
             type="number"
             step="any"
+            readOnly
             label="Latitude"
-            hint="Ex: -22.5647 (use o Google Maps para localizar)."
-            error={errors.latitude?.message}
+            className="bg-neutral-50 text-neutral-500 dark:bg-neutral-900/60"
+            hint={LOCATION_HINT[locationStatus]}
             {...register('latitude')}
           />
           <InputField
             type="number"
             step="any"
+            readOnly
             label="Longitude"
-            error={errors.longitude?.message}
+            className="bg-neutral-50 text-neutral-500 dark:bg-neutral-900/60"
             {...register('longitude')}
           />
         </div>
+        {(locationStatus === 'failed' || errors.latitude || errors.longitude) && (
+          <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+            {COORDINATE_REQUIRED}
+          </p>
+        )}
       </fieldset>
 
       {serverError && (

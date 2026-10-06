@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '@foodshare/types';
 import { cancelReservation, fetchReservations, type Reservation } from '../lib/reservations';
@@ -24,6 +25,13 @@ export function ReservationsList() {
   const isNgo = user?.role === 'NGO';
   const query = useQuery({ queryKey: ['reservations'], queryFn: fetchReservations });
 
+  // O sino manda para cá com ?conversa=<id> quando chega mensagem nova. A lista
+  // é carregada de forma assíncrona, então a conversa só pode ser aberta quando
+  // a reserva correspondente aparecer — e o parâmetro é removido logo depois,
+  // para que um refetch não reabra o chat que o usuário acabou de fechar.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedConversationId = searchParams.get('conversa');
+
   const cancelMutation = useMutation({
     mutationFn: cancelReservation,
     onSuccess: () => {
@@ -35,12 +43,36 @@ export function ReservationsList() {
   });
 
   const confirmCancel = (reservation: Reservation) => {
-    const itens = reservation.items.map((i) => i.donationItem?.foodName).filter(Boolean).join(', ');
-    if (!window.confirm(`Cancelar a reserva de ${itens || 'estes itens'}? Eles voltam a ficar disponíveis.`)) return;
+    const itens = reservation.items
+      .map((i) => i.donationItem?.foodName)
+      .filter(Boolean)
+      .join(', ');
+    if (!window.confirm(`Cancelar a reserva de ${itens || 'estes itens'}? Eles voltam a ficar disponíveis.`))
+      return;
     cancelMutation.mutate(reservation.id);
   };
 
   const items = query.data ?? [];
+  const conversationIds = items.map((reservation) => reservation.conversationId ?? '').join(',');
+
+  useEffect(() => {
+    if (!requestedConversationId) return;
+    const match = (query.data ?? []).find(
+      (reservation) => reservation.conversationId === requestedConversationId,
+    );
+    if (!match) return;
+
+    setOpenChatId(match.id);
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete('conversa');
+        return next;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedConversationId, conversationIds]);
 
   return (
     <QueryState
@@ -53,16 +85,25 @@ export function ReservationsList() {
     >
       <div className="flex flex-col gap-3">
         {error && (
-          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+          <p
+            role="alert"
+            className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
+          >
             {error}
           </p>
         )}
         {items.map((reservation) => (
-          <div key={reservation.id} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+          <div
+            key={reservation.id}
+            className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="font-semibold text-neutral-900 dark:text-white">
-                  {reservation.items.map((i) => i.donationItem?.foodName ?? '').filter(Boolean).join(', ')}
+                  {reservation.items
+                    .map((i) => i.donationItem?.foodName ?? '')
+                    .filter(Boolean)
+                    .join(', ')}
                 </h3>
                 <p className="text-sm text-neutral-500">
                   {reservation.items
@@ -79,7 +120,9 @@ export function ReservationsList() {
                   </p>
                 )}
               </div>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[reservation.status]}`}>
+              <span
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[reservation.status]}`}
+              >
                 {STATUS_LABEL[reservation.status]}
               </span>
             </div>

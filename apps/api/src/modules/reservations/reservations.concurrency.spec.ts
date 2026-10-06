@@ -14,15 +14,26 @@ import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 describe('ReservationsService - concorrência de reserva por item', () => {
   const prisma = new PrismaClient();
   const noopAuditLog = { record: jest.fn().mockResolvedValue(undefined) };
-  const noopSync = { publishEvent: jest.fn().mockResolvedValue(undefined) };
+  const noopSync = {
+    publishEvent: jest.fn().mockResolvedValue(undefined),
+    broadcastChange: jest.fn(),
+  };
   const noopChat = {
     createConversationForReservation: jest.fn(
-      (tx: { conversation: { create: (args: unknown) => unknown } }, reservationId: string, donationListId: string) =>
-        tx.conversation.create({ data: { reservationId, donationListId } }),
+      (
+        tx: { conversation: { create: (args: unknown) => unknown } },
+        reservationId: string,
+        donationListId: string,
+      ) => tx.conversation.create({ data: { reservationId, donationListId } }),
     ),
     notifyConversationCreated: jest.fn(),
   };
-  const service = new ReservationsService(prisma as never, noopAuditLog as never, noopSync as never, noopChat as never);
+  const service = new ReservationsService(
+    prisma as never,
+    noopAuditLog as never,
+    noopSync as never,
+    noopChat as never,
+  );
   const runId = Date.now();
 
   let ngoAId: string;
@@ -147,7 +158,7 @@ describe('ReservationsService - concorrência de reserva por item', () => {
               ? [
                   {
                     foodName: 'Pães',
-                    category: DonationCategory.BAKERY,
+                    category: DonationCategory.PACKAGED_GOODS,
                     quantity: secondItemQuantity,
                     remainingQuantity: secondItemQuantity,
                     unit: 'un',
@@ -171,16 +182,36 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   }, 30_000);
 
   afterAll(async () => {
-    await prisma.pickup.deleteMany({ where: { reservation: { donationListId: { in: createdListIds } } } });
-    await prisma.message.deleteMany({ where: { conversation: { donationListId: { in: createdListIds } } } });
-    await prisma.conversation.deleteMany({ where: { donationListId: { in: createdListIds } } });
-    await prisma.reservationItem.deleteMany({ where: { reservation: { donationListId: { in: createdListIds } } } });
-    await prisma.reservation.deleteMany({ where: { donationListId: { in: createdListIds } } });
-    await prisma.donationItem.deleteMany({ where: { donationListId: { in: createdListIds } } });
-    await prisma.donationList.deleteMany({ where: { id: { in: createdListIds } } });
-    await prisma.organizationUser.deleteMany({ where: { userId: { in: createdUserIds } } });
-    await prisma.organization.deleteMany({ where: { id: { in: createdOrgIds } } });
-    await prisma.address.deleteMany({ where: { id: { in: createdAddressIds } } });
+    await prisma.pickup.deleteMany({
+      where: { reservation: { donationListId: { in: createdListIds } } },
+    });
+    await prisma.message.deleteMany({
+      where: { conversation: { donationListId: { in: createdListIds } } },
+    });
+    await prisma.conversation.deleteMany({
+      where: { donationListId: { in: createdListIds } },
+    });
+    await prisma.reservationItem.deleteMany({
+      where: { reservation: { donationListId: { in: createdListIds } } },
+    });
+    await prisma.reservation.deleteMany({
+      where: { donationListId: { in: createdListIds } },
+    });
+    await prisma.donationItem.deleteMany({
+      where: { donationListId: { in: createdListIds } },
+    });
+    await prisma.donationList.deleteMany({
+      where: { id: { in: createdListIds } },
+    });
+    await prisma.organizationUser.deleteMany({
+      where: { userId: { in: createdUserIds } },
+    });
+    await prisma.organization.deleteMany({
+      where: { id: { in: createdOrgIds } },
+    });
+    await prisma.address.deleteMany({
+      where: { id: { in: createdAddressIds } },
+    });
     await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     await prisma.$disconnect();
   });
@@ -188,12 +219,28 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   it('quando duas reservas concorrentes juntas excedem o disponível, só uma vence', async () => {
     const list = await createDonationList(10, true);
     const itemId = list.items[0].id;
-    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
-    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userA: AuthenticatedUser = {
+      id: ngoAId,
+      email: 'a',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
+    const userB: AuthenticatedUser = {
+      id: ngoBId,
+      email: 'b',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
 
     const results = await Promise.allSettled([
-      service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 7 }] }),
-      service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 7 }] }),
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: itemId, quantity: 7 }],
+      }),
+      service.reserve(userB, {
+        donationListId: list.id,
+        items: [{ donationItemId: itemId, quantity: 7 }],
+      }),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -201,24 +248,44 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
 
-    const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
+    const item = await prisma.donationItem.findUniqueOrThrow({
+      where: { id: itemId },
+    });
     expect(item.remainingQuantity.toNumber()).toBe(3);
   }, 30_000);
 
   it('quando duas reservas concorrentes cabem no disponível, ambas vencem', async () => {
     const list = await createDonationList(10, true);
     const itemId = list.items[0].id;
-    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
-    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userA: AuthenticatedUser = {
+      id: ngoAId,
+      email: 'a',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
+    const userB: AuthenticatedUser = {
+      id: ngoBId,
+      email: 'b',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
 
     const results = await Promise.allSettled([
-      service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 6 }] }),
-      service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 4 }] }),
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: itemId, quantity: 6 }],
+      }),
+      service.reserve(userB, {
+        donationListId: list.id,
+        items: [{ donationItemId: itemId, quantity: 4 }],
+      }),
     ]);
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
 
-    const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
+    const item = await prisma.donationItem.findUniqueOrThrow({
+      where: { id: itemId },
+    });
     expect(item.remainingQuantity.toNumber()).toBe(0);
     expect(item.status).toBe('FULLY_RESERVED');
   }, 30_000);
@@ -226,10 +293,18 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   it('rejeita pedido parcial quando a lista não permite aceite parcial', async () => {
     const list = await createDonationList(10, false);
     const itemId = list.items[0].id;
-    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userA: AuthenticatedUser = {
+      id: ngoAId,
+      email: 'a',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
 
     await expect(
-      service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 4 }] }),
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: itemId, quantity: 4 }],
+      }),
     ).rejects.toMatchObject({ response: { code: 'PARTIAL_NOT_ALLOWED' } });
   });
 
@@ -239,13 +314,29 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   it('não cria reserva de quantidade zero sobre item já esgotado', async () => {
     const list = await createDonationList(1, true, 5);
     const itemId = list.items[0].id;
-    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
-    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userA: AuthenticatedUser = {
+      id: ngoAId,
+      email: 'a',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
+    const userB: AuthenticatedUser = {
+      id: ngoBId,
+      email: 'b',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
 
-    await service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId }] });
+    await service.reserve(userA, {
+      donationListId: list.id,
+      items: [{ donationItemId: itemId }],
+    });
 
     await expect(
-      service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId }] }),
+      service.reserve(userB, {
+        donationListId: list.id,
+        items: [{ donationItemId: itemId }],
+      }),
     ).rejects.toMatchObject({ response: { code: 'ITEM_NOT_AVAILABLE' } });
 
     const reservations = await prisma.reservation.findMany({
@@ -262,7 +353,12 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   it('cancelar reserva de lista expirada não reabre a doação', async () => {
     const list = await createDonationList(10, true);
     const itemId = list.items[0].id;
-    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userA: AuthenticatedUser = {
+      id: ngoAId,
+      email: 'a',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
 
     const reservation = await service.reserve(userA, {
       donationListId: list.id,
@@ -290,13 +386,31 @@ describe('ReservationsService - concorrência de reserva por item', () => {
   it('reservas fracionadas zeram o item exatamente (sem resto de ponto flutuante)', async () => {
     const list = await createDonationList(1, true);
     const itemId = list.items[0].id;
-    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
-    const userB: AuthenticatedUser = { id: ngoBId, email: 'b', role: 'NGO', nodeId: 'LIMEIRA' };
+    const userA: AuthenticatedUser = {
+      id: ngoAId,
+      email: 'a',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
+    const userB: AuthenticatedUser = {
+      id: ngoBId,
+      email: 'b',
+      role: 'NGO',
+      nodeId: 'LIMEIRA',
+    };
 
-    await service.reserve(userA, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 0.7 }] });
-    await service.reserve(userB, { donationListId: list.id, items: [{ donationItemId: itemId, quantity: 0.3 }] });
+    await service.reserve(userA, {
+      donationListId: list.id,
+      items: [{ donationItemId: itemId, quantity: 0.7 }],
+    });
+    await service.reserve(userB, {
+      donationListId: list.id,
+      items: [{ donationItemId: itemId, quantity: 0.3 }],
+    });
 
-    const item = await prisma.donationItem.findUniqueOrThrow({ where: { id: itemId } });
+    const item = await prisma.donationItem.findUniqueOrThrow({
+      where: { id: itemId },
+    });
     expect(item.remainingQuantity.toNumber()).toBe(0);
     expect(item.status).toBe('FULLY_RESERVED');
   }, 30_000);

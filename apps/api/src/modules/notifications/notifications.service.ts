@@ -36,15 +36,23 @@ export class NotificationsService {
    * janela de poucas horas.
    */
   async notifyNearbyNgos(
-    donationList: DonationList & { items?: { category: DonationCategory; foodName: string }[] },
+    donationList: DonationList & {
+      items?: { category: DonationCategory; foodName: string }[];
+    },
     donorAddressId: string,
   ) {
-    const donorAddress = await this.prisma.address.findUniqueOrThrow({ where: { id: donorAddressId } });
+    const donorAddress = await this.prisma.address.findUniqueOrThrow({
+      where: { id: donorAddressId },
+    });
     const defaultRadiusKm = this.config.get<number>('notifications.radiusKm') ?? 50;
     const categories = donationList.items?.map((i) => i.category) ?? [];
 
     const ngoOrganizations = await this.prisma.organization.findMany({
-      where: { kind: OrganizationKind.NGO, approvalStatus: ApprovalStatus.APPROVED, deletedAt: null },
+      where: {
+        kind: OrganizationKind.NGO,
+        approvalStatus: ApprovalStatus.APPROVED,
+        deletedAt: null,
+      },
       include: { address: true, users: { include: { user: true } } },
       take: MAX_CANDIDATES,
     });
@@ -108,6 +116,57 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Avisa as ONGs que tinham reserva ativa numa doação que o doador cancelou.
+   * Vai por e-mail além do sino: a ONG pode já ter organizado transporte para a
+   * retirada, e descobrir o cancelamento só ao abrir o sistema é tarde demais.
+   */
+  async notifyReservationsCancelledByDonor(
+    donationListId: string,
+    ngoOrganizationIds: string[],
+    itemNames: string,
+  ) {
+    const links = await this.prisma.organizationUser.findMany({
+      where: { organizationId: { in: ngoOrganizationIds } },
+      include: { user: true },
+    });
+    if (links.length === 0) return;
+
+    const title = 'Doação cancelada pelo doador';
+    const message = itemNames
+      ? `O doador cancelou a doação de ${itemNames}. Sua reserva foi desfeita e não há retirada a fazer.`
+      : 'O doador cancelou a doação. Sua reserva foi desfeita e não há retirada a fazer.';
+
+    await this.prisma.notification.createMany({
+      data: links.map((link) => ({
+        userId: link.userId,
+        type: NotificationType.GENERIC,
+        title,
+        message,
+        // Sem donationListId: a lista cancelada não tem mais nada para abrir, e
+        // o removeForDonationList apagaria este aviso junto com os de "doação
+        // disponível" se eles ficassem ligados à mesma lista.
+      })),
+    });
+
+    for (const link of links) {
+      this.realtimeGateway.emitToUser(link.userId, 'notification:new', {
+        type: NotificationType.GENERIC,
+        title,
+        message,
+        donationListId,
+      });
+
+      if (link.user?.email && link.user.emailVerifiedAt) {
+        void this.mail.send({
+          to: link.user.email,
+          subject: title,
+          text: message,
+        });
+      }
+    }
+  }
+
   /** Sem preferência declarada, a ONG recebe tudo (padrão). */
   private matchesCategories(preferred: DonationCategory[], donationCategories: DonationCategory[]) {
     if (preferred.length === 0 || donationCategories.length === 0) return true;
@@ -156,7 +215,9 @@ export class NotificationsService {
     });
 
     for (const n of notifications) {
-      this.realtimeGateway.emitToUser(n.userId, 'notification:removed', { id: n.id });
+      this.realtimeGateway.emitToUser(n.userId, 'notification:removed', {
+        id: n.id,
+      });
     }
   }
 

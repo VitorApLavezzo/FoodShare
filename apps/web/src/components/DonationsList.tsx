@@ -96,7 +96,13 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
 
   const confirmCancel = (donationList: DonationList) => {
     const nomes = donationList.items.map((i) => i.foodName).join(', ');
-    if (!window.confirm(`Cancelar a doação de ${nomes}? Ela deixa de aparecer para as ONGs.`)) return;
+    // Cancelar uma lista já reservada desfaz o combinado com a ONG, que é avisada
+    // na hora — o aviso precisa estar no texto, senão o doador descobre depois.
+    const temReserva = donationList.items.some((item) => item.remainingQuantity < item.quantity);
+    const pergunta = temReserva
+      ? `Cancelar a doação de ${nomes}? As reservas já feitas serão desfeitas e as ONGs avisadas.`
+      : `Cancelar a doação de ${nomes}? Ela deixa de aparecer para as ONGs.`;
+    if (!window.confirm(pergunta)) return;
     cancelMutation.mutate(donationList.id);
   };
 
@@ -109,7 +115,9 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
     <div className="flex flex-col gap-3">
       {mode === 'own' && (
         <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-          <p className="mb-2 text-xs font-medium text-neutral-500">Confirmar retirada (código apresentado pela ONG)</p>
+          <p className="mb-2 text-xs font-medium text-neutral-500">
+            Confirmar retirada (código apresentado pela ONG)
+          </p>
           <ConfirmPickupForm />
         </div>
       )}
@@ -140,7 +148,10 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
       >
         <div className="flex flex-col gap-3">
           {error && (
-            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+            <p
+              role="alert"
+              className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
+            >
               {error}
             </p>
           )}
@@ -158,11 +169,17 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                     {donationList.items.length} {donationList.items.length === 1 ? 'item' : 'itens'} ·{' '}
                     {donationList.allowPartial ? 'aceita reserva parcial' : 'só tudo de uma vez'}
                     {donationList.donorOrganization && mode === 'available' && (
-                      <> · {donationList.donorOrganization.tradeName} ({donationList.donorOrganization.address.city})</>
+                      <>
+                        {' '}
+                        · {donationList.donorOrganization.tradeName} (
+                        {donationList.donorOrganization.address.city})
+                      </>
                     )}
                   </p>
                 </div>
-                <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[donationList.status]}`}>
+                <span
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[donationList.status]}`}
+                >
                   {DONATION_LIST_STATUS_LABEL[donationList.status]}
                 </span>
               </div>
@@ -171,8 +188,8 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                 {donationList.items.map((item) => (
                   <li key={item.id} className="text-xs text-neutral-500">
                     {item.foodName} — {CATEGORY_LABEL[item.category]} ·{' '}
-                    {formatQuantity(item.remainingQuantity, item.unit)} de {formatQuantity(item.quantity, item.unit)} ·{' '}
-                    {DONATION_ITEM_STATUS_LABEL[item.status]}
+                    {formatQuantity(item.remainingQuantity, item.unit)} de{' '}
+                    {formatQuantity(item.quantity, item.unit)} · {DONATION_ITEM_STATUS_LABEL[item.status]}
                   </li>
                 ))}
               </ul>
@@ -182,22 +199,30 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                 {formatDateTime(donationList.expiresAt)}
               </p>
 
-              {mode === 'own' && donationList.status === 'OPEN' && editingId !== donationList.id && (
-                <div className="mt-3 flex items-center gap-4">
-                  <Button variant="secondary" size="sm" onClick={() => setEditingId(donationList.id)}>
-                    Editar
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    className="px-0"
-                    onClick={() => confirmCancel(donationList)}
-                    loading={cancelMutation.isPending}
-                  >
-                    Cancelar doação
-                  </Button>
-                </div>
-              )}
+              {/* Editar só enquanto a lista está aberta (mudar datas do que já foi
+                  reservado quebraria o combinado), mas cancelar vale também com
+                  tudo reservado: a comida é do doador e um imprevisto não pode
+                  deixá-lo preso a uma entrega que não tem como cumprir. */}
+              {mode === 'own' &&
+                editingId !== donationList.id &&
+                (donationList.status === 'OPEN' || donationList.status === 'FULLY_RESERVED') && (
+                  <div className="mt-3 flex items-center gap-4">
+                    {donationList.status === 'OPEN' && (
+                      <Button variant="secondary" size="sm" onClick={() => setEditingId(donationList.id)}>
+                        Editar
+                      </Button>
+                    )}
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      className="px-0"
+                      onClick={() => confirmCancel(donationList)}
+                      loading={cancelMutation.isPending}
+                    >
+                      Cancelar doação
+                    </Button>
+                  </div>
+                )}
 
               {mode === 'own' && editingId === donationList.id && (
                 <EditDonationListForm donationList={donationList} onDone={() => setEditingId(null)} />

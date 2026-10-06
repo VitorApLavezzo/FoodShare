@@ -1,4 +1,10 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import {
+  forwardRef,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react';
 
 const baseInputClass =
   'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm text-neutral-900 shadow-sm transition placeholder:text-neutral-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white dark:focus:ring-brand-500/25';
@@ -10,6 +16,7 @@ function FieldWrapper({
   hint,
   icon,
   rightElement,
+  required,
   children,
 }: {
   label?: string;
@@ -18,13 +25,24 @@ function FieldWrapper({
   hint?: ReactNode;
   icon?: ReactNode;
   rightElement?: ReactNode;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <div>
       {label && (
-        <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+        <label
+          htmlFor={htmlFor}
+          className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
+        >
           {label}
+          {/* O asterisco é decorativo: o campo já carrega `required`, e repetir
+              "obrigatório" no leitor de tela a cada rótulo só atrapalha. */}
+          {required && (
+            <span aria-hidden="true" className="ml-0.5 text-red-600 dark:text-red-400">
+              *
+            </span>
+          )}
         </label>
       )}
       <div className="relative">
@@ -34,12 +52,12 @@ function FieldWrapper({
           </span>
         )}
         {children}
-        {rightElement && (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2">{rightElement}</span>
-        )}
+        {rightElement && <span className="absolute right-2 top-1/2 -translate-y-1/2">{rightElement}</span>}
       </div>
       {error && (
-        <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">{error}</p>
+        <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
+          {error}
+        </p>
       )}
       {!error && hint && <div className="mt-1.5 text-xs text-neutral-500">{hint}</div>}
     </div>
@@ -56,7 +74,15 @@ interface InputFieldProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
   ({ label, error, hint, icon, rightElement, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} icon={icon} rightElement={rightElement}>
+    <FieldWrapper
+      label={label}
+      htmlFor={id}
+      error={error}
+      hint={hint}
+      icon={icon}
+      rightElement={rightElement}
+      required={props.required}
+    >
       <input
         ref={ref}
         id={id}
@@ -77,7 +103,7 @@ interface TextareaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement>
 
 export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaFieldProps>(
   ({ label, error, hint, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint}>
+    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} required={props.required}>
       <textarea ref={ref} id={id} className={`${baseInputClass} resize-none ${className}`} {...props} />
     </FieldWrapper>
   ),
@@ -92,7 +118,7 @@ interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
 
 export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
   ({ label, error, hint, className = '', id, children, ...props }, ref) => (
-    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint}>
+    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} required={props.required}>
       <select ref={ref} id={id} className={`${baseInputClass} appearance-none pr-9 ${className}`} {...props}>
         {children}
       </select>

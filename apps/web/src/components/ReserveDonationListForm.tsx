@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { reserveDonationItems, type ReserveItemInput } from '../lib/reservations';
 import { getApiErrorMessage } from '../lib/api';
@@ -19,18 +19,44 @@ export function ReserveDonationListForm({ donationList }: { donationList: Donati
 
   const availableItems = donationList.items.filter((item) => item.status === 'AVAILABLE');
 
-  const [selections, setSelections] = useState<Record<string, ItemSelection>>(() =>
+  // A tupla é anotada porque, sem isso, `mode` alarga para `string` e deixa de
+  // casar com o literal 'all' | 'partial' de ItemSelection.
+  const defaultSelections = (): Record<string, ItemSelection> =>
     Object.fromEntries(
-      availableItems.map((item) => [item.id, { selected: !donationList.allowPartial, mode: 'all', quantity: '' }]),
-    ),
-  );
+      availableItems.map((item): [string, ItemSelection] => [
+        item.id,
+        { selected: !donationList.allowPartial, mode: 'all', quantity: '' },
+      ]),
+    );
+
+  const [selections, setSelections] = useState<Record<string, ItemSelection>>(defaultSelections);
+
+  // O estado nasce no primeiro render e a lista é refeita a cada reserva: sem
+  // ressincronizar, um item que acabou de aparecer (ou de sumir) ficava sem
+  // seleção e o formulário recusava o envio dizendo que nada foi escolhido.
+  const availableIds = availableItems.map((item) => item.id).join(',');
+  useEffect(() => {
+    setSelections(defaultSelections());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableIds, donationList.allowPartial]);
 
   const mutation = useMutation({
     mutationFn: (items: ReserveItemInput[]) => reserveDonationItems(donationList.id, items),
     onSuccess: (reservation) => {
       setError(null);
+      // ['donation', id] é a tela de detalhe: sem invalidar aqui ela continuava
+      // mostrando o saldo anterior, e um segundo clique reservava de novo
+      // partindo de um número que já não existia mais.
+      queryClient.invalidateQueries({ queryKey: ['donation', donationList.id] });
       queryClient.invalidateQueries({ queryKey: ['donations'] });
       queryClient.invalidateQueries({ queryKey: ['reservations'] });
+      // Limpa só as quantidades digitadas: o campo com o número anterior ainda
+      // na tela é o que convidava ao segundo clique.
+      setSelections((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).map(([id, selection]) => [id, { ...selection, quantity: '' }]),
+        ),
+      );
       showToast(`Reserva feita! Código de retirada: ${reservation.pickupCode}`, 'success');
     },
     onError: (err) => setError(getApiErrorMessage(err, 'Não foi possível reservar esta doação.')),
@@ -39,6 +65,11 @@ export function ReserveDonationListForm({ donationList }: { donationList: Donati
   if (availableItems.length === 0) return null;
 
   const submit = () => {
+    // Cada clique cria uma reserva nova e desconta de novo. O botão já fica
+    // desabilitado enquanto `isPending`, mas essa guarda cobre a janela entre o
+    // clique e o React aplicar o novo estado — é onde o clique repetido passava.
+    if (mutation.isPending) return;
+
     const items: ReserveItemInput[] = [];
     for (const item of availableItems) {
       const selection = selections[item.id];
@@ -49,6 +80,14 @@ export function ReserveDonationListForm({ donationList }: { donationList: Donati
         const quantity = Number(selection.quantity);
         if (!quantity || quantity <= 0) {
           setError(`Informe uma quantidade válida para "${item.foodName}".`);
+          return;
+        }
+        // Validado no cliente além do servidor: o erro aparece junto do campo,
+        // com o nome do alimento, antes de gastar uma ida à API.
+        if (quantity > item.remainingQuantity) {
+          setError(
+            `Só restam ${item.remainingQuantity} ${item.unit} de "${item.foodName}" — reduza a quantidade.`,
+          );
           return;
         }
         items.push({ donationItemId: item.id, quantity });
@@ -66,7 +105,7 @@ export function ReserveDonationListForm({ donationList }: { donationList: Donati
     return (
       <div className="mt-3">
         {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
-        <Button size="sm" loading={mutation.isPending} onClick={submit}>
+        <Button size="sm" loading={mutation.isPending} disabled={mutation.isPending} onClick={submit}>
           Reservar tudo ({availableItems.length} {availableItems.length === 1 ? 'item' : 'itens'})
         </Button>
       </div>
@@ -142,7 +181,13 @@ export function ReserveDonationListForm({ donationList }: { donationList: Donati
       })}
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      <Button size="sm" className="self-start" loading={mutation.isPending} onClick={submit}>
+      <Button
+        size="sm"
+        className="self-start"
+        loading={mutation.isPending}
+        disabled={mutation.isPending}
+        onClick={submit}
+      >
         Reservar selecionados
       </Button>
     </div>

@@ -43,10 +43,13 @@ export function NotificationsBell() {
   });
 
   useEffect(() => {
-    const unsubscribeNew = onSocketEvent<{ title: string; message: string }>('notification:new', (notification) => {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      showToast(notification.title, 'info');
-    });
+    const unsubscribeNew = onSocketEvent<{ title: string; message: string }>(
+      'notification:new',
+      (notification) => {
+        queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        showToast(notification.title, 'info');
+      },
+    );
     const unsubscribeRemoved = onSocketEvent('notification:removed', () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     });
@@ -60,12 +63,19 @@ export function NotificationsBell() {
   const items = query.data?.items ?? [];
   const unreadCount = items.filter((n) => !n.readAt).length;
 
-  // Clicar na notificação leva à doação que a originou — antes ela só marcava
-  // como lida e o usuário tinha de caçar a doação na lista.
+  // Clicar na notificação leva ao que a originou — antes ela só marcava como
+  // lida e o usuário tinha de caçar a doação na lista. Aviso de mensagem vai
+  // para o painel com a conversa já aberta: o chat vive junto da reserva, e
+  // mandar para o detalhe da doação deixaria o usuário numa tela sem chat.
   const openNotification = async (notification: AppNotification) => {
     if (!notification.readAt) {
       await markNotificationRead(notification.id);
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    }
+    if (notification.conversationId) {
+      setOpen(false);
+      navigate(`/dashboard?conversa=${notification.conversationId}`);
+      return;
     }
     if (notification.donationListId) {
       setOpen(false);
@@ -105,7 +115,10 @@ export function NotificationsBell() {
           <div className="flex items-center justify-between px-1 pb-1">
             <span className="text-xs font-semibold uppercase text-neutral-500">Notificações</span>
             {items.length > 0 && (
-              <button onClick={clearAll} className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400">
+              <button
+                onClick={clearAll}
+                className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
+              >
                 Limpar todas
               </button>
             )}
@@ -124,7 +137,9 @@ export function NotificationsBell() {
                 <button onClick={() => openNotification(notification)} className="flex-1 text-left text-sm">
                   <p className="font-medium text-neutral-900 dark:text-white">{notification.title}</p>
                   <p className="text-xs text-neutral-500">{notification.message}</p>
-                  <p className="mt-0.5 text-[10px] text-neutral-400">{formatDateTime(notification.createdAt)}</p>
+                  <p className="mt-0.5 text-[10px] text-neutral-400">
+                    {formatDateTime(notification.createdAt)}
+                  </p>
                 </button>
                 <button
                   onClick={() => removeOne(notification.id)}

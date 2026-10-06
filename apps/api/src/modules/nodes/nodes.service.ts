@@ -20,7 +20,7 @@ export class NodesService implements OnModuleInit, OnModuleDestroy {
     await this.upsertSelf();
     this.logger.log(`Nó ${this.config.get<string>('node.id')} registrado/online`);
     this.heartbeatTimer = setInterval(
-      () => this.upsertSelf().catch((err) => this.logger.error(err)),
+      () => void this.upsertSelf().catch((err: Error) => this.logger.error(err)),
       HEARTBEAT_INTERVAL_MS,
     );
   }

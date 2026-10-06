@@ -25,7 +25,7 @@ export class HealthController {
   health() {
     return {
       status: 'ok',
-      nodeId: this.config.get('node.id'),
+      nodeId: this.config.get<string>('node.id'),
       timestamp: new Date().toISOString(),
     };
   }
@@ -56,7 +56,7 @@ export class HealthController {
 
     const body = {
       status: checks.database && checks.redis ? 'ok' : 'degraded',
-      nodeId: this.config.get('node.id'),
+      nodeId: this.config.get<string>('node.id'),
       checks,
       timestamp: new Date().toISOString(),
     };

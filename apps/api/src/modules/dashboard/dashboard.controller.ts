@@ -13,7 +13,9 @@ export class DashboardController {
 
   @Get('donor')
   @Roles(UserRole.DONOR)
-  @ApiOperation({ summary: 'Métricas do doador autenticado: status das doações, quantidade doada, histórico.' })
+  @ApiOperation({
+    summary: 'Métricas do doador autenticado: status das doações, quantidade doada, histórico.',
+  })
   getDonorDashboard(@CurrentUser() user: AuthenticatedUser) {
     return this.dashboardService.getDonorDashboard(user);
   }

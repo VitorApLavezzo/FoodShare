@@ -243,7 +243,8 @@ export class DashboardService {
     notificationRadiusKm: number | null;
     address: { latitude: number; longitude: number };
   }) {
-    const radiusKm = organization.notificationRadiusKm ?? this.config.get<number>('notifications.radiusKm') ?? 50;
+    const radiusKm =
+      organization.notificationRadiusKm ?? this.config.get<number>('notifications.radiusKm') ?? 50;
 
     const candidates = await this.prisma.donationItem.findMany({
       where: {
@@ -291,9 +292,7 @@ export class DashboardService {
       GROUP BY 1`;
 
     const byMonth = new Map(rows.map((r) => [r.month, r]));
-    return lastNMonthKeys(MONTHS_BACK).map(
-      (month) => byMonth.get(month) ?? { month, count: 0, quantity: 0 },
-    );
+    return lastNMonthKeys(MONTHS_BACK).map((month) => byMonth.get(month) ?? { month, count: 0, quantity: 0 });
   }
 
   private toStatusTotals(groups: { status: DonationItemStatus; _count: { _all: number } }[]) {

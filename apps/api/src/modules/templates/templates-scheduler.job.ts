@@ -100,7 +100,8 @@ export class TemplatesSchedulerJob {
 
     const weekday = now.getDay();
     if (template.recurrence === DonationRecurrence.WEEKDAYS && (weekday === 0 || weekday === 6)) return false;
-    if (template.recurrence === DonationRecurrence.WEEKLY && weekday !== (template.weekday ?? 1)) return false;
+    if (template.recurrence === DonationRecurrence.WEEKLY && weekday !== (template.weekday ?? 1))
+      return false;
 
     if (!template.lastGeneratedAt) return true;
     return !this.isSameDay(template.lastGeneratedAt, now);

@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  Controller,
-  Post,
-  UploadedFile,
-  UseInterceptors,
-} from '@nestjs/common';
+import { BadRequestException, Controller, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
@@ -45,7 +39,13 @@ export class UploadsController {
       limits: { fileSize: parseInt(process.env.UPLOADS_MAX_BYTES ?? '5242880', 10), files: 1 },
       fileFilter: (_req, file, callback) => {
         if (!ALLOWED_MIME.includes(file.mimetype)) {
-          callback(new BadRequestException({ code: 'INVALID_FILE_TYPE', message: 'Envie uma imagem JPG, PNG ou WEBP.' }), false);
+          callback(
+            new BadRequestException({
+              code: 'INVALID_FILE_TYPE',
+              message: 'Envie uma imagem JPG, PNG ou WEBP.',
+            }),
+            false,
+          );
           return;
         }
         callback(null, true);

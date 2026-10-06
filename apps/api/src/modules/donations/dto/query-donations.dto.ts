@@ -5,7 +5,10 @@ import { DonationCategory } from '@prisma/client';
 import { DONATION_CATEGORIES } from '../../../common/enum-values';
 
 export class QueryDonationsDto {
-  @ApiPropertyOptional({ enum: DONATION_CATEGORIES, description: 'Filtra listas que contenham algum item dessa categoria.' })
+  @ApiPropertyOptional({
+    enum: DONATION_CATEGORIES,
+    description: 'Filtra listas que contenham algum item dessa categoria.',
+  })
   @IsOptional()
   @IsIn(DONATION_CATEGORIES)
   category?: DonationCategory;

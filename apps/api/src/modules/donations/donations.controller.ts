@@ -16,7 +16,9 @@ export class DonationsController {
 
   @Post()
   @Roles(UserRole.DONOR)
-  @ApiOperation({ summary: 'Publica uma nova lista de doação com um ou mais itens (requer estabelecimento aprovado).' })
+  @ApiOperation({
+    summary: 'Publica uma nova lista de doação com um ou mais itens (requer estabelecimento aprovado).',
+  })
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateDonationDto) {
     return this.donationsService.create(user, dto);
   }
@@ -38,12 +40,10 @@ export class DonationsController {
 
   @Put(':id')
   @Roles(UserRole.DONOR, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Atualiza os dados de nível de lista (datas/notas) enquanto nenhum item foi reservado.' })
-  update(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-    @Body() dto: UpdateDonationDto,
-  ) {
+  @ApiOperation({
+    summary: 'Atualiza os dados de nível de lista (datas/notas) enquanto nenhum item foi reservado.',
+  })
+  update(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateDonationDto) {
     return this.donationsService.update(user, id, dto);
   }
 

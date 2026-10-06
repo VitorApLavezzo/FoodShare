@@ -24,7 +24,8 @@ export class CreateDonationDto {
 
   @ApiProperty({
     default: true,
-    description: 'Se true, a ONG pode aceitar a lista parcialmente (item a item, total ou parcial). Se false, só reserva tudo de uma vez.',
+    description:
+      'Se true, a ONG pode aceitar a lista parcialmente (item a item, total ou parcial). Se false, só reserva tudo de uma vez.',
   })
   @IsBoolean()
   allowPartial: boolean = true;

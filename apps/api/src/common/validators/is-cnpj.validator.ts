@@ -7,7 +7,8 @@ export function isValidCnpj(value: unknown): boolean {
   if (/^(\d)\1{13}$/.test(digits)) return false;
 
   const calculateDigit = (base: string): number => {
-    const weights = base.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const weights =
+      base.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
     const sum = base.split('').reduce((acc, digit, index) => acc + Number(digit) * weights[index], 0);
     const remainder = sum % 11;
     return remainder < 2 ? 0 : 11 - remainder;

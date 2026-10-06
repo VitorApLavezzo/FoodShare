@@ -9,7 +9,7 @@ import { map, Observable } from 'rxjs';
  */
 function serialize(value: unknown): unknown {
   if (value === null || value === undefined) return value;
-  if (Prisma.Decimal.isDecimal(value)) return (value as Prisma.Decimal).toNumber();
+  if (Prisma.Decimal.isDecimal(value)) return value.toNumber();
   if (typeof value === 'bigint') return value.toString();
   if (value instanceof Date) return value;
   if (Array.isArray(value)) return value.map(serialize);

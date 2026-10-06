@@ -1,15 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsArray,
-  IsEmail,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Min,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { DonationCategory, OrganizationType } from '@prisma/client';
 import { DONATION_CATEGORIES } from '../../../common/enum-values';
 import { AddressDto } from './address.dto';
@@ -66,7 +57,8 @@ export class CreateOrganizationDto {
 
   @ApiProperty({
     required: false,
-    description: 'Raio (km) para receber alertas de doação próxima (apenas ONG). Se omitido, usa o padrão da plataforma.',
+    description:
+      'Raio (km) para receber alertas de doação próxima (apenas ONG). Se omitido, usa o padrão da plataforma.',
   })
   @IsOptional()
   @IsInt()

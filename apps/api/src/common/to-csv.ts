@@ -1,5 +1,18 @@
 function escapeCsvCell(value: unknown): string {
-  const str = value === null || value === undefined ? '' : String(value);
+  // Objeto ou função cairiam no toString do Object e virariam "[object Object]"
+  // na célula, sem erro nenhum — o relatório sairia com uma coluna inútil.
+  let str: string;
+  if (value === null || value === undefined) {
+    str = '';
+  } else if (typeof value === 'string') {
+    str = value;
+  } else if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
+    str = String(value);
+  } else if (value instanceof Date) {
+    str = value.toISOString();
+  } else {
+    str = JSON.stringify(value) ?? '';
+  }
   if (/[",\n]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }

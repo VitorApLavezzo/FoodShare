@@ -58,7 +58,9 @@ export class AuthService {
     // (o usuário pode reenviar a confirmação depois).
     this.accountRecovery
       .sendVerificationEmail(user.id)
-      .catch((err) => this.logger.warn(`Falha ao enviar verificação para ${user.email}: ${err.message}`));
+      .catch((err: Error) =>
+        this.logger.warn(`Falha ao enviar verificação para ${user.email}: ${err.message}`),
+      );
 
     return this.issueTokens(user);
   }

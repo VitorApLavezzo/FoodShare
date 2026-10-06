@@ -46,4 +46,4 @@ async function bootstrap() {
   logger.log(`FoodShare API [node=${config.get('node.id')}] rodando em http://localhost:${port}`);
   logger.log(`Swagger docs em http://localhost:${port}/docs`);
 }
-bootstrap();
+void bootstrap();

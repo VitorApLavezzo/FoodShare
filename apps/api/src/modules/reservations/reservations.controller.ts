@@ -42,7 +42,8 @@ export class ReservationsController {
   @Post('confirm-pickup')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Confirma a retirada presencial informando o código apresentado pela ONG (doador ou ONG podem confirmar).',
+    summary:
+      'Confirma a retirada presencial informando o código apresentado pela ONG (doador ou ONG podem confirmar).',
   })
   confirmPickup(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmPickupDto) {
     return this.reservationsService.confirmPickup(user, dto.pickupCode);

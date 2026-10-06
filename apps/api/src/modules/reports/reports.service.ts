@@ -21,7 +21,7 @@ export class ReportsService {
       };
     }
     if (query.category) where.category = query.category;
-    if (query.status) where.status = query.status as DonationItemStatus;
+    if (query.status) where.status = query.status;
 
     const donationListWhere: Prisma.DonationListWhereInput = { deletedAt: null };
     if (query.donorOrganizationId) donationListWhere.donorOrganizationId = query.donorOrganizationId;

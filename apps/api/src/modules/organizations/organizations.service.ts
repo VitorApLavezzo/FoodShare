@@ -106,7 +106,12 @@ export class OrganizationsService {
     });
   }
 
-  async updateApproval(admin: AuthenticatedUser, kind: OrganizationKind, id: string, status: ManualApprovalStatus) {
+  async updateApproval(
+    admin: AuthenticatedUser,
+    kind: OrganizationKind,
+    id: string,
+    status: ManualApprovalStatus,
+  ) {
     const organization = await this.prisma.organization.findFirst({ where: { id, kind, deletedAt: null } });
     if (!organization) {
       throw new NotFoundException({ code: 'ORGANIZATION_NOT_FOUND', message: 'Cadastro não encontrado.' });

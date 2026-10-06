@@ -42,7 +42,7 @@ describe('CreateDonationDto', () => {
 
   it('rejeita categoria fora do enum em um item', async () => {
     const errors = await validatePayload({
-      items: [{ foodName: 'Arroz', category: 'INVALID_CATEGORY' as never, quantity: 10, unit: 'kg' }],
+      items: [{ foodName: 'Arroz', category: 'INVALID_CATEGORY', quantity: 10, unit: 'kg' }],
     });
     expect(errors.some((e) => e.property === 'items')).toBe(true);
   });

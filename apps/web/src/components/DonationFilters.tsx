@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react';
 import { CATEGORY_LABEL } from '../lib/donations';
+import { FILTER_CONTROL_CLASS } from './ui/Field';
 
 export interface DonationFilterValues {
   search?: string;
   category?: string;
   city?: string;
 }
-
-const inputClass =
-  'rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900';
 
 /**
  * A API já filtrava por alimento, categoria e cidade — a tela simplesmente não
@@ -32,19 +30,19 @@ export function DonationFilters({
   }, [search, value, onChange]);
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+    <div className="flex flex-wrap items-center gap-2.5 rounded-[20px] border border-line bg-surface p-3">
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Buscar alimento…"
         aria-label="Buscar alimento"
-        className={`${inputClass} flex-1 min-w-40`}
+        className={`${FILTER_CONTROL_CLASS} min-w-40 flex-1`}
       />
       <select
         value={value.category ?? ''}
         onChange={(e) => onChange({ ...value, category: e.target.value || undefined })}
         aria-label="Categoria"
-        className={inputClass}
+        className={FILTER_CONTROL_CLASS}
       >
         <option value="">Todas as categorias</option>
         {Object.entries(CATEGORY_LABEL).map(([key, label]) => (
@@ -58,7 +56,7 @@ export function DonationFilters({
         onChange={(e) => onChange({ ...value, city: e.target.value || undefined })}
         placeholder="Cidade"
         aria-label="Cidade"
-        className={`${inputClass} w-36`}
+        className={`${FILTER_CONTROL_CLASS} w-36`}
       />
       {(value.search || value.category || value.city) && (
         <button
@@ -66,7 +64,7 @@ export function DonationFilters({
             setSearch('');
             onChange({});
           }}
-          className="text-sm font-medium text-neutral-500 hover:underline"
+          className="rounded-sm px-1 text-sm font-semibold text-ink-muted transition hover:text-leaf-800 hover:underline"
         >
           Limpar
         </button>

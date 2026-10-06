@@ -1,7 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Logo } from './Logo';
-import { Button } from '../ui/Button';
 import { NotificationsBell } from '../NotificationsBell';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -10,10 +9,13 @@ const ROLE_LABEL: Record<string, string> = {
   NGO: 'ONG',
 };
 
+// A etiqueta de papel do design é a da ONG (verde claro sobre verde escuro).
+// Doador herda o laranja — é a cor da doação em toda a interface, e doador é
+// quem publica. Admin fica no tom da tinta, sem competir com os dois.
 const ROLE_BADGE: Record<string, string> = {
-  ADMIN: 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900',
-  DONOR: 'bg-accent-100 text-accent-800 dark:bg-accent-950/40 dark:text-accent-300',
-  NGO: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-300',
+  ADMIN: 'bg-ink text-canvas',
+  DONOR: 'bg-sun-100 text-sun-800',
+  NGO: 'bg-leaf-100 text-leaf-800',
 };
 
 function NavLink({ to, label }: { to: string; label: string }) {
@@ -22,10 +24,9 @@ function NavLink({ to, label }: { to: string; label: string }) {
   return (
     <Link
       to={to}
-      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-        active
-          ? 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white'
-          : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white'
+      aria-current={active ? 'page' : undefined}
+      className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${
+        active ? 'bg-leaf-800 text-canvas' : 'text-ink-soft hover:bg-sand hover:text-leaf-800'
       }`}
     >
       {label}
@@ -38,11 +39,13 @@ export function AppHeader() {
   if (!user) return null;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-neutral-200 bg-white/85 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/85">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+    // z-1000 e não o z-30 de antes: os painéis do Leaflet sobem até z-400 e
+    // passavam por cima do cabeçalho ao rolar o mapa.
+    <header className="sticky top-0 z-[1000] border-b border-line bg-canvas/92 backdrop-blur-md">
+      <div className="mx-auto flex h-[68px] max-w-6xl items-center justify-between gap-4 px-6">
         <div className="flex items-center gap-6">
-          <Link to="/dashboard">
-            <Logo markClassName="h-7 w-7" />
+          <Link to="/dashboard" className="flex items-center">
+            <Logo />
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
             <NavLink to="/dashboard" label="Painel" />
@@ -56,23 +59,25 @@ export function AppHeader() {
           {(user.role === 'DONOR' || user.role === 'NGO') && <NotificationsBell />}
           <Link
             to="/account"
-            className="hidden rounded-lg px-2 py-1 text-right transition hover:bg-neutral-100 sm:block dark:hover:bg-neutral-800"
+            className="hidden flex-col items-end gap-0.5 rounded-xl px-2.5 py-1 transition hover:bg-sand sm:flex"
           >
-            <p className="text-sm font-medium leading-tight text-neutral-900 dark:text-white">
-              {user.name.split(' ')[0]}
-            </p>
+            <span className="text-sm leading-none font-semibold text-ink">{user.name.split(' ')[0]}</span>
             <span
-              className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ROLE_BADGE[user.role]}`}
+              className={`rounded-full px-2 py-px text-[10px] font-bold tracking-[0.05em] uppercase ${ROLE_BADGE[user.role]}`}
             >
               {ROLE_LABEL[user.role] ?? user.role}
             </span>
           </Link>
-          <Button variant="secondary" size="sm" onClick={() => logout()}>
+          <button
+            onClick={() => logout()}
+            className="rounded-full border-[1.5px] border-line-bold bg-surface px-4 py-1.5 text-sm font-semibold text-leaf-800 transition hover:border-leaf-800"
+          >
             Sair
-          </Button>
+          </button>
         </div>
       </div>
-      <nav className="flex items-center gap-1 border-t border-neutral-200 px-6 py-2 sm:hidden dark:border-neutral-800">
+
+      <nav className="flex items-center gap-1 border-t border-line px-6 py-2 sm:hidden">
         <NavLink to="/dashboard" label="Painel" />
         <NavLink to="/map" label="Mapa" />
         {user.role === 'ADMIN' && <NavLink to="/reports" label="Relatórios" />}

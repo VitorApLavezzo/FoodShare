@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   cancelDonation,
@@ -12,12 +13,16 @@ import { confirmPickup } from '../lib/reservations';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
 import { useToast } from '../context/ToastContext';
-import { Button } from './ui/Button';
+import { Button, InlineDangerButton } from './ui/Button';
+import { Badge, type BadgeTone } from './ui/Badge';
 import { QueryState } from './ui/QueryState';
-import { ReserveDonationListForm } from './ReserveDonationListForm';
 import { EditDonationListForm } from './EditDonationListForm';
 import { DonationFilters, type DonationFilterValues } from './DonationFilters';
 
+/**
+ * Painel âmbar, e não mais um cartão neutro: a confirmação de retirada é a
+ * única coisa nesta tela que acontece com a ONG parada na porta esperando.
+ */
 function ConfirmPickupForm() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -37,35 +42,44 @@ function ConfirmPickupForm() {
   });
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        mutation.mutate(code.toUpperCase());
-      }}
-      className="flex flex-wrap items-center gap-2"
-    >
-      <input
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        maxLength={6}
-        placeholder="Código de retirada"
-        aria-label="Código de retirada apresentado pela ONG"
-        className="w-40 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm font-mono uppercase focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-neutral-700 dark:bg-neutral-900"
-      />
-      <Button type="submit" size="sm" loading={mutation.isPending} disabled={code.length !== 6}>
-        Confirmar retirada
-      </Button>
-      {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
-    </form>
+    <div className="flex flex-col gap-2.5 rounded-[20px] bg-sun-50 px-4.5 py-4">
+      <p className="text-[13px] font-semibold text-sun-800">
+        A ONG chegou? Digite o código que ela mostrar pra confirmar a retirada.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutation.mutate(code.toUpperCase());
+        }}
+        className="flex flex-wrap items-center gap-2"
+      >
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          maxLength={6}
+          placeholder="Código"
+          aria-label="Código de retirada apresentado pela ONG"
+          className="w-[150px] rounded-full border-[1.5px] border-sun-300 bg-surface px-4 py-2 font-mono text-[15px] tracking-[0.15em] text-ink uppercase transition placeholder:tracking-normal placeholder:text-ink-faint focus:border-sun-500 focus:ring-4 focus:ring-sun-500/20 focus:outline-none"
+        />
+        <Button type="submit" variant="accent" loading={mutation.isPending} disabled={code.length !== 6}>
+          Confirmar retirada
+        </Button>
+        {error && (
+          <p role="alert" className="w-full text-sm font-semibold text-danger">
+            {error}
+          </p>
+        )}
+      </form>
+    </div>
   );
 }
 
-const STATUS_BADGE: Record<DonationList['status'], string> = {
-  OPEN: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-400',
-  FULLY_RESERVED: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400',
-  CLOSED: 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400',
-  CANCELLED: 'bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400',
-  EXPIRED: 'bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400',
+const STATUS_TONE: Record<DonationList['status'], BadgeTone> = {
+  OPEN: 'leaf',
+  FULLY_RESERVED: 'sun',
+  CLOSED: 'dusk',
+  CANCELLED: 'stone',
+  EXPIRED: 'stone',
 };
 
 export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
@@ -113,14 +127,7 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {mode === 'own' && (
-        <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-          <p className="mb-2 text-xs font-medium text-neutral-500">
-            Confirmar retirada (código apresentado pela ONG)
-          </p>
-          <ConfirmPickupForm />
-        </div>
-      )}
+      {mode === 'own' && <ConfirmPickupForm />}
 
       {mode === 'available' && (
         <DonationFilters
@@ -142,30 +149,29 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
         emptyMessage={
           mode === 'own'
             ? 'Você ainda não publicou nenhuma doação.'
-            : 'Nenhuma doação encontrada. Tente ajustar os filtros.'
+            : 'Nada encontrado. Tente outra categoria ou cidade.'
         }
         onRetry={() => query.refetch()}
       >
         <div className="flex flex-col gap-3">
           {error && (
-            <p
-              role="alert"
-              className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
-            >
+            <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
               {error}
             </p>
           )}
           {items.map((donationList) => (
-            <div
+            <article
               key={donationList.id}
-              className="rounded-xl border border-neutral-200 p-4 transition hover:border-neutral-300 hover:shadow-sm dark:border-neutral-800 dark:hover:border-neutral-700"
+              className="flex flex-col gap-2.5 rounded-[22px] border border-line bg-surface p-5 transition hover:border-line-bold hover:shadow-[0_6px_20px_rgba(22,82,46,0.07)]"
             >
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="font-semibold text-neutral-900 dark:text-white">
-                    {donationList.items.map((i) => i.foodName).join(', ')}
+                <div className="min-w-0">
+                  <h3 className="text-[17px] font-bold text-ink">
+                    <Link to={`/doacoes/${donationList.id}`} className="transition hover:text-leaf-600">
+                      {donationList.items.map((i) => i.foodName).join(', ')}
+                    </Link>
                   </h3>
-                  <p className="text-sm text-neutral-500">
+                  <p className="mt-0.5 text-sm text-ink-muted">
                     {donationList.items.length} {donationList.items.length === 1 ? 'item' : 'itens'} ·{' '}
                     {donationList.allowPartial ? 'aceita reserva parcial' : 'só tudo de uma vez'}
                     {donationList.donorOrganization && mode === 'available' && (
@@ -177,16 +183,15 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                     )}
                   </p>
                 </div>
-                <span
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[donationList.status]}`}
-                >
+                <Badge tone={STATUS_TONE[donationList.status]}>
                   {DONATION_LIST_STATUS_LABEL[donationList.status]}
-                </span>
+                </Badge>
               </div>
 
-              <ul className="mt-2 flex flex-col gap-1">
+              <ul className="flex flex-col gap-1">
                 {donationList.items.map((item) => (
-                  <li key={item.id} className="text-xs text-neutral-500">
+                  <li key={item.id} className="flex items-center gap-2 text-[13px] text-ink-soft">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sun-500" aria-hidden />
                     {item.foodName} — {CATEGORY_LABEL[item.category]} ·{' '}
                     {formatQuantity(item.remainingQuantity, item.unit)} de{' '}
                     {formatQuantity(item.quantity, item.unit)} · {DONATION_ITEM_STATUS_LABEL[item.status]}
@@ -194,7 +199,7 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                 ))}
               </ul>
 
-              <p className="mt-2 text-xs text-neutral-500">
+              <p className="text-[13px] text-ink-muted">
                 Retirada até {formatDateTime(donationList.pickupDeadline)} · validade{' '}
                 {formatDateTime(donationList.expiresAt)}
               </p>
@@ -206,21 +211,18 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
               {mode === 'own' &&
                 editingId !== donationList.id &&
                 (donationList.status === 'OPEN' || donationList.status === 'FULLY_RESERVED') && (
-                  <div className="mt-3 flex items-center gap-4">
+                  <div className="mt-0.5 flex items-center gap-4">
                     {donationList.status === 'OPEN' && (
-                      <Button variant="secondary" size="sm" onClick={() => setEditingId(donationList.id)}>
+                      <Button variant="secondary" onClick={() => setEditingId(donationList.id)}>
                         Editar
                       </Button>
                     )}
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      className="px-0"
+                    <InlineDangerButton
                       onClick={() => confirmCancel(donationList)}
-                      loading={cancelMutation.isPending}
+                      disabled={cancelMutation.isPending}
                     >
                       Cancelar doação
-                    </Button>
+                    </InlineDangerButton>
                   </div>
                 )}
 
@@ -228,29 +230,30 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                 <EditDonationListForm donationList={donationList} onDone={() => setEditingId(null)} />
               )}
 
+              {/* A reserva mora na tela de detalhe, onde há espaço para escolher
+                  item a item — na lista, o cartão só leva até lá. */}
               {mode === 'available' && donationList.status === 'OPEN' && (
-                <ReserveDonationListForm donationList={donationList} />
+                <div className="mt-0.5 flex">
+                  <Link to={`/doacoes/${donationList.id}`}>
+                    <Button>Reservar</Button>
+                  </Link>
+                </div>
               )}
-            </div>
+            </article>
           ))}
         </div>
       </QueryState>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3 text-sm text-neutral-500">
+        <div className="flex items-center justify-between gap-3 text-sm text-ink-muted">
           <span>
             Página {page} de {totalPages} · {total} {total === 1 ? 'doação' : 'doações'}
           </span>
           <div className="flex gap-2">
-            <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               Anterior
             </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
+            <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
               Próxima
             </Button>
           </div>

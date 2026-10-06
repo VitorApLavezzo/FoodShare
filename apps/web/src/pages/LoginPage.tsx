@@ -40,13 +40,13 @@ export function LoginPage() {
 
   return (
     <AuthLayout
-      title="Bem-vindo de volta"
-      subtitle="Entre para gerenciar suas doações ou reservas."
+      title="Que bom te ver de novo!"
+      subtitle="Entre pra acompanhar suas doações ou reservas."
       footer={
         <>
-          Não tem conta?{' '}
-          <Link to="/register" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">
-            Cadastre-se gratuitamente
+          Ainda não tem conta?{' '}
+          <Link to="/register" className="font-bold text-sun-600 hover:underline">
+            Cadastre-se, é de graça
           </Link>
         </>
       }
@@ -87,21 +87,18 @@ export function LoginPage() {
 
         <Link
           to="/esqueci-senha"
-          className="-mt-1 self-end text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
+          className="-mt-1 self-end text-sm font-semibold text-leaf-600 hover:underline"
         >
           Esqueci minha senha
         </Link>
 
         {serverError && (
-          <p
-            role="alert"
-            className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700 dark:bg-red-950/40 dark:text-red-400"
-          >
+          <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
             {serverError}
           </p>
         )}
 
-        <Button type="submit" loading={isSubmitting} className="mt-1 w-full">
+        <Button type="submit" size="lg" loading={isSubmitting} className="mt-1 w-full">
           {isSubmitting ? 'Entrando…' : 'Entrar'}
         </Button>
       </form>

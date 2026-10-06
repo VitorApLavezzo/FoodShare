@@ -25,7 +25,7 @@ const AdminUsersPage = lazy(() =>
 );
 
 function RouteFallback() {
-  return <p className="p-6 text-sm text-neutral-500">Carregando…</p>;
+  return <p className="p-6 text-sm text-ink-muted">Carregando…</p>;
 }
 
 /** Assina os avisos de mudança uma única vez, para toda a aplicação. */

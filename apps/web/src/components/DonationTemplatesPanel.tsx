@@ -14,12 +14,9 @@ import {
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime } from '../lib/format';
 import { useToast } from '../context/ToastContext';
-import { Button } from './ui/Button';
+import { Button, InlineDangerButton } from './ui/Button';
 import { QueryState } from './ui/QueryState';
-
-const inputClass =
-  'w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900';
-const labelClass = 'mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300';
+import { InputField, SelectField } from './ui/Field';
 
 function describeSchedule(template: DonationTemplate) {
   const hora = `${String(template.hourOfDay).padStart(2, '0')}h`;
@@ -90,24 +87,33 @@ export function DonationTemplatesPanel() {
   };
 
   const templates = query.data ?? [];
+  const active = templates.filter((template) => template.isActive);
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl bg-leaf-800 p-6">
         <div>
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Doações recorrentes</h2>
-          <p className="text-sm text-neutral-500">Publique sozinho o que sobra todo dia, sem recadastrar.</p>
+          <h2 className="font-display text-[22px] font-semibold text-canvas">Doações recorrentes</h2>
+          <p className="mt-1 text-sm text-leaf-200">
+            Sobra todo dia? Deixa que a gente publica no horário combinado.
+          </p>
+          {active.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-1">
+              {active.map((template) => (
+                <li key={template.id} className="text-sm text-canvas">
+                  <strong className="font-bold">{template.name}</strong> · {describeSchedule(template)}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        <Button size="sm" variant="secondary" onClick={() => setShowForm((prev) => !prev)}>
+        <Button variant="accent" onClick={() => setShowForm((prev) => !prev)}>
           {showForm ? 'Fechar' : 'Nova recorrência'}
         </Button>
       </div>
 
       {error && (
-        <p
-          role="alert"
-          className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
-        >
+        <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
           {error}
         </p>
       )}
@@ -118,110 +124,86 @@ export function DonationTemplatesPanel() {
             e.preventDefault();
             submit();
           }}
-          className="mt-4 flex flex-col gap-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
+          className="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-6"
         >
-          <div>
-            <label className={labelClass}>Nome do modelo</label>
-            <input
-              className={inputClass}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ex.: sobra de padaria no fim do dia"
+          <InputField
+            label="Nome do modelo"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ex.: sobra de padaria no fim do dia"
+            required
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <InputField
+              label="Alimento"
+              value={foodName}
+              onChange={(e) => setFoodName(e.target.value)}
               required
             />
+            <SelectField
+              label="Categoria"
+              value={category}
+              onChange={(e) => setCategory(e.target.value as DonationCategory)}
+            >
+              {DONATION_CATEGORIES.map((value) => (
+                <option key={value} value={value}>
+                  {DONATION_CATEGORY_LABEL[value]}
+                </option>
+              ))}
+            </SelectField>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Alimento</label>
-              <input
-                className={inputClass}
-                value={foodName}
-                onChange={(e) => setFoodName(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Categoria</label>
-              <select
-                className={inputClass}
-                value={category}
-                onChange={(e) => setCategory(e.target.value as DonationCategory)}
-              >
-                {DONATION_CATEGORIES.map((value) => (
-                  <option key={value} value={value}>
-                    {DONATION_CATEGORY_LABEL[value]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Quantidade estimada</label>
-              <input
-                type="number"
-                step="any"
-                min={0}
-                className={inputClass}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Unidade</label>
-              <input className={inputClass} value={unit} onChange={(e) => setUnit(e.target.value)} />
-            </div>
+            <InputField
+              type="number"
+              step="any"
+              min={0}
+              label="Quantidade estimada"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+            />
+            <InputField label="Unidade" value={unit} onChange={(e) => setUnit(e.target.value)} />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className={labelClass}>Frequência</label>
-              <select
-                className={inputClass}
-                value={recurrence}
-                onChange={(e) => setRecurrence(e.target.value as DonationRecurrence)}
-              >
-                {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
-                  <option key={value} value={value}>
+            <SelectField
+              label="Frequência"
+              value={recurrence}
+              onChange={(e) => setRecurrence(e.target.value as DonationRecurrence)}
+            >
+              {Object.entries(RECURRENCE_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </SelectField>
+            <InputField
+              type="number"
+              min={0}
+              max={23}
+              label="Hora de publicar"
+              value={hourOfDay}
+              onChange={(e) => setHourOfDay(e.target.value)}
+            />
+            {recurrence === 'WEEKLY' && (
+              <SelectField label="Dia da semana" value={weekday} onChange={(e) => setWeekday(e.target.value)}>
+                {WEEKDAY_LABEL.map((label, index) => (
+                  <option key={label} value={index}>
                     {label}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Hora de publicar</label>
-              <input
-                type="number"
-                min={0}
-                max={23}
-                className={inputClass}
-                value={hourOfDay}
-                onChange={(e) => setHourOfDay(e.target.value)}
-              />
-            </div>
-            {recurrence === 'WEEKLY' && (
-              <div>
-                <label className={labelClass}>Dia da semana</label>
-                <select className={inputClass} value={weekday} onChange={(e) => setWeekday(e.target.value)}>
-                  {WEEKDAY_LABEL.map((label, index) => (
-                    <option key={label} value={index}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              </SelectField>
             )}
           </div>
 
-          <Button type="submit" size="sm" className="self-start" loading={createMutation.isPending}>
+          <Button type="submit" className="self-start" loading={createMutation.isPending}>
             Criar recorrência
           </Button>
         </form>
       )}
 
-      <div className="mt-4">
+      <div>
         <QueryState
           isLoading={query.isLoading}
           isError={query.isError}
@@ -234,47 +216,45 @@ export function DonationTemplatesPanel() {
             {templates.map((template) => (
               <div
                 key={template.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-line bg-surface px-5 py-4"
               >
-                <div>
-                  <p className="font-medium text-neutral-900 dark:text-white">
+                <div className="min-w-0">
+                  <p className="font-bold text-ink">
                     {template.name}{' '}
                     {!template.isActive && (
-                      <span className="text-xs font-normal text-neutral-500">(pausada)</span>
+                      <span className="text-xs font-normal text-ink-muted">(pausada)</span>
                     )}
                   </p>
-                  <p className="text-sm text-neutral-500">
+                  <p className="text-sm text-ink-muted">
                     {describeSchedule(template)} · {template.items.map((i) => i.foodName).join(', ')}
                   </p>
                   {template.lastGeneratedAt && (
-                    <p className="mt-0.5 text-xs text-neutral-400">
+                    <p className="mt-0.5 text-xs text-ink-dim">
                       Última publicação: {formatDateTime(template.lastGeneratedAt)}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                   <Button
-                    size="sm"
                     variant="secondary"
                     onClick={() => toggleMutation.mutate({ id: template.id, isActive: !template.isActive })}
                   >
                     {template.isActive ? 'Pausar' : 'Retomar'}
                   </Button>
-                  <button
+                  <InlineDangerButton
                     onClick={() => {
                       if (!window.confirm(`Remover a recorrência "${template.name}"?`)) return;
                       deleteMutation.mutate(template.id);
                     }}
-                    className="text-sm font-medium text-red-600 hover:underline dark:text-red-400"
                   >
                     Remover
-                  </button>
+                  </InlineDangerButton>
                 </div>
               </div>
             ))}
           </div>
         </QueryState>
       </div>
-    </div>
+    </section>
   );
 }

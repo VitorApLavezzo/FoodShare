@@ -260,9 +260,8 @@ export function OrganizationForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
-      <p className="text-xs text-neutral-500">
-        Campos marcados com <span className="font-medium text-red-600 dark:text-red-400">*</span> são
-        obrigatórios.
+      <p className="text-xs text-ink-muted">
+        Campos marcados com <span className="font-semibold text-danger">*</span> são obrigatórios.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -332,11 +331,9 @@ export function OrganizationForm({
             {...register('notificationRadiusKm')}
           />
 
-          <fieldset className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-            <legend className="px-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Categorias de interesse
-            </legend>
-            <p className="mb-3 text-xs text-neutral-500">
+          <fieldset className="rounded-[20px] border-[1.5px] border-line p-4">
+            <legend className="px-1.5 text-sm font-semibold text-ink-body">Categorias de interesse</legend>
+            <p className="mb-3 text-xs text-ink-muted">
               Deixe tudo desmarcado para receber alerta de qualquer alimento.
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -371,8 +368,8 @@ export function OrganizationForm({
 
       <TextareaField label="Descrição (opcional)" rows={2} {...register('description')} />
 
-      <fieldset className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-        <legend className="px-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">Endereço</legend>
+      <fieldset className="rounded-[20px] border-[1.5px] border-line p-4">
+        <legend className="px-1.5 text-sm font-semibold text-ink-body">Endereço</legend>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
@@ -406,7 +403,7 @@ export function OrganizationForm({
               );
             })()}
             {cepStatus === 'not-found' && (
-              <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+              <p className="mt-1.5 text-xs font-semibold text-sun-800">
                 CEP não encontrado — preencha o endereço manualmente.
               </p>
             )}
@@ -446,7 +443,7 @@ export function OrganizationForm({
             step="any"
             readOnly
             label="Latitude"
-            className="bg-neutral-50 text-neutral-500 dark:bg-neutral-900/60"
+            className="bg-sand-muted text-ink-muted"
             hint={LOCATION_HINT[locationStatus]}
             {...register('latitude')}
           />
@@ -455,22 +452,17 @@ export function OrganizationForm({
             step="any"
             readOnly
             label="Longitude"
-            className="bg-neutral-50 text-neutral-500 dark:bg-neutral-900/60"
+            className="bg-sand-muted text-ink-muted"
             {...register('longitude')}
           />
         </div>
         {(locationStatus === 'failed' || errors.latitude || errors.longitude) && (
-          <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-            {COORDINATE_REQUIRED}
-          </p>
+          <p className="mt-1.5 text-xs font-semibold text-sun-800">{COORDINATE_REQUIRED}</p>
         )}
       </fieldset>
 
       {serverError && (
-        <p
-          role="alert"
-          className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700 dark:bg-red-950/40 dark:text-red-400"
-        >
+        <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
           {serverError}
         </p>
       )}

@@ -8,12 +8,14 @@ import { DonationForm } from '../components/DonationForm';
 import { DonationsList } from '../components/DonationsList';
 import { ReservationsList } from '../components/ReservationsList';
 import { DonationTemplatesPanel } from '../components/DonationTemplatesPanel';
-// Os gráficos (recharts) são a dependência mais pesada da tela e ficam abaixo
-// do conteúdo principal — carregar sob demanda encurta o primeiro render.
+// Os gráficos do admin ainda são a dependência mais pesada da tela e ficam
+// abaixo do conteúdo principal — carregar sob demanda encurta o primeiro render.
 const DonorMetrics = lazy(() =>
   import('../components/dashboard/DonorMetrics').then((m) => ({ default: m.DonorMetrics })),
 );
-const NgoMetrics = lazy(() => import('../components/dashboard/NgoMetrics').then((m) => ({ default: m.NgoMetrics })));
+const NgoMetrics = lazy(() =>
+  import('../components/dashboard/NgoMetrics').then((m) => ({ default: m.NgoMetrics })),
+);
 const AdminMetrics = lazy(() =>
   import('../components/dashboard/AdminMetrics').then((m) => ({ default: m.AdminMetrics })),
 );
@@ -21,12 +23,21 @@ import { AuditLogList } from '../components/dashboard/AuditLogList';
 import { NodesSyncPanel } from '../components/dashboard/NodesSyncPanel';
 import { AppHeader } from '../components/layout/AppHeader';
 import { Button } from '../components/ui/Button';
+import { Badge, type BadgeTone } from '../components/ui/Badge';
 
-const APPROVAL_BADGE: Record<Organization['approvalStatus'], string> = {
-  PENDING: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400',
-  APPROVED: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-400',
-  REJECTED: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400',
-  BLOCKED: 'bg-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300',
+const APPROVAL_TONE: Record<Organization['approvalStatus'], BadgeTone> = {
+  PENDING: 'sun',
+  APPROVED: 'leaf',
+  REJECTED: 'danger',
+  BLOCKED: 'stone',
+};
+
+// A saudação muda com o papel porque o que a pessoa vem fazer aqui é diferente:
+// o doador vem oferecer, a ONG vem procurar.
+const GREETING: Record<string, string> = {
+  DONOR: 'Bora compartilhar hoje?',
+  NGO: 'Tem comida boa esperando.',
+  ADMIN: 'Como anda a rede hoje?',
 };
 
 export function DashboardPage() {
@@ -43,137 +54,133 @@ export function DashboardPage() {
 
   if (!user) return null;
 
+  const organization = organizationQuery.data;
+
   return (
     <div>
       <AppHeader />
-      <div className="mx-auto max-w-5xl px-6 py-10">
-        <h1 className="font-display text-2xl font-medium text-neutral-900 dark:text-white">
-          Olá, {user.name.split(' ')[0]} 👋
+      <div className="mx-auto flex max-w-5xl flex-col gap-10 px-6 pt-10 pb-20">
+        <h1 className="font-display text-[2.125rem] leading-tight font-semibold text-leaf-800">
+          Oi, {user.name.split(' ')[0]}! <span className="text-sun-500">{GREETING[user.role]}</span>
         </h1>
 
         {user.role === 'ADMIN' && (
-          <div className="mt-8">
-            <Suspense fallback={<p className="text-sm text-neutral-500">Carregando indicadores…</p>}>
+          <>
+            <Suspense fallback={<p className="text-sm text-ink-muted">Carregando indicadores…</p>}>
               <AdminMetrics />
             </Suspense>
             <NodesSyncPanel />
             <AuditLogList />
-          </div>
+          </>
         )}
 
         {(user.role === 'DONOR' || user.role === 'NGO') && (
-          <div className="mt-8">
-            {organizationQuery.data?.approvalStatus === 'APPROVED' && (
-              <Suspense fallback={<p className="text-sm text-neutral-500">Carregando indicadores…</p>}>
+          <>
+            {organization?.approvalStatus === 'APPROVED' && (
+              <Suspense fallback={<p className="text-sm text-ink-muted">Carregando indicadores…</p>}>
                 {user.role === 'DONOR' ? <DonorMetrics /> : <NgoMetrics />}
               </Suspense>
             )}
 
-            {organizationQuery.isLoading && <p className="text-sm text-neutral-500">Carregando cadastro…</p>}
+            {organizationQuery.isLoading && <p className="text-sm text-ink-muted">Carregando cadastro…</p>}
 
-            {organizationQuery.data && (
-              <div className="rounded-xl border border-neutral-200 p-6 dark:border-neutral-800">
-                <div className="flex items-start justify-between">
+            {organization && (
+              <section className="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-6">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">
-                      {organizationQuery.data.tradeName}
+                    <h2 className="font-display text-[22px] font-semibold text-leaf-800">
+                      {organization.tradeName}
                     </h2>
-                    <p className="text-sm text-neutral-500">{organizationQuery.data.legalName}</p>
+                    <p className="mt-0.5 text-sm text-ink-muted">{organization.legalName}</p>
                   </div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${APPROVAL_BADGE[organizationQuery.data.approvalStatus]}`}
-                  >
-                    {APPROVAL_LABEL[organizationQuery.data.approvalStatus]}
-                  </span>
+                  <Badge tone={APPROVAL_TONE[organization.approvalStatus]}>
+                    {APPROVAL_LABEL[organization.approvalStatus]}
+                  </Badge>
                 </div>
-                <dl className="mt-4 grid gap-2 text-sm text-neutral-600 dark:text-neutral-400 sm:grid-cols-2">
+                <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div>
-                    <dt className="font-medium text-neutral-500">Endereço</dt>
-                    <dd>
-                      {organizationQuery.data.address.street}, {organizationQuery.data.address.city}/
-                      {organizationQuery.data.address.state}
+                    <dt className="font-semibold text-ink-muted">Endereço</dt>
+                    <dd className="mt-0.5 text-ink-body">
+                      {organization.address.street}
+                      {organization.address.number ? `, ${organization.address.number}` : ''},{' '}
+                      {organization.address.city}/{organization.address.state}
                     </dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-neutral-500">Contato</dt>
-                    <dd>
-                      {organizationQuery.data.phone} · {organizationQuery.data.email}
+                    <dt className="font-semibold text-ink-muted">Contato</dt>
+                    <dd className="mt-0.5 text-ink-body">
+                      {organization.phone} · {organization.email}
                     </dd>
                   </div>
                 </dl>
-              </div>
+              </section>
             )}
 
-            {organizationQuery.isSuccess && !organizationQuery.data && (
-              <div className="rounded-xl border border-neutral-200 p-6 dark:border-neutral-800">
-                <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">
+            {organizationQuery.isSuccess && !organization && (
+              <section className="rounded-3xl border border-line bg-surface p-6">
+                <h2 className="font-display text-[22px] font-semibold text-leaf-800">
                   {kind === 'NGO' ? 'Cadastre sua ONG' : 'Cadastre seu estabelecimento'}
                 </h2>
-                <p className="mt-1 mb-6 text-sm text-neutral-500">
-                  Leva menos de um minuto — assim que salvar, já pode {kind === 'NGO' ? 'reservar doações' : 'publicar doações'}.
+                <p className="mt-1 mb-6 text-sm text-ink-muted">
+                  Leva menos de um minuto — assim que salvar, já dá pra{' '}
+                  {kind === 'NGO' ? 'reservar doações' : 'publicar doações'}.
                 </p>
                 <OrganizationForm
                   kind={kind}
                   onCreated={() => queryClient.invalidateQueries({ queryKey: ['my-organization', kind] })}
                 />
-              </div>
+              </section>
             )}
 
-            {user.role === 'DONOR' && organizationQuery.data?.approvalStatus === 'APPROVED' && (
-              <div className="mt-8">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Minhas doações</h2>
-                  <Button size="sm" onClick={() => setShowDonationForm((prev) => !prev)}>
-                    {showDonationForm ? 'Fechar' : 'Nova doação'}
-                  </Button>
-                </div>
-
-                {showDonationForm && (
-                  <div className="mt-4 rounded-xl border border-neutral-200 p-6 dark:border-neutral-800">
-                    <DonationForm
-                      onCreated={() => {
-                        setShowDonationForm(false);
-                        queryClient.invalidateQueries({ queryKey: ['donations'] });
-                      }}
-                    />
+            {user.role === 'DONOR' && organization?.approvalStatus === 'APPROVED' && (
+              <>
+                <section className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas doações</h2>
+                    <Button onClick={() => setShowDonationForm((prev) => !prev)}>
+                      {showDonationForm ? 'Fechar' : 'Nova doação'}
+                    </Button>
                   </div>
-                )}
 
-                <div className="mt-4">
+                  {showDonationForm && (
+                    <div className="rounded-3xl border border-line bg-surface p-6">
+                      <DonationForm
+                        onCreated={() => {
+                          setShowDonationForm(false);
+                          queryClient.invalidateQueries({ queryKey: ['donations'] });
+                        }}
+                      />
+                    </div>
+                  )}
+
                   <DonationsList mode="own" />
-                </div>
+                </section>
 
-                <div className="mt-8">
-                  <DonationTemplatesPanel />
-                </div>
+                <DonationTemplatesPanel />
 
-                <div className="mt-8">
-                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Reservas recebidas</h2>
-                  <div className="mt-4">
-                    <ReservationsList />
-                  </div>
-                </div>
-              </div>
+                <section className="flex flex-col gap-4">
+                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">Reservas recebidas</h2>
+                  <ReservationsList />
+                </section>
+              </>
             )}
 
             {user.role === 'NGO' && (
               <>
-                <div className="mt-8">
-                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Doações disponíveis</h2>
-                  <div className="mt-4">
-                    <DonationsList mode="available" />
-                  </div>
-                </div>
+                <section className="flex flex-col gap-4">
+                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">
+                    Doações disponíveis
+                  </h2>
+                  <DonationsList mode="available" />
+                </section>
 
-                <div className="mt-8">
-                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Minhas reservas</h2>
-                  <div className="mt-4">
-                    <ReservationsList />
-                  </div>
-                </div>
+                <section className="flex flex-col gap-4">
+                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas reservas</h2>
+                  <ReservationsList />
+                </section>
               </>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>

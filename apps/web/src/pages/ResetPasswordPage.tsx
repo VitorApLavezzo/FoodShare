@@ -52,20 +52,20 @@ export function ResetPasswordPage() {
 
   return (
     <AuthLayout
-      title="Nova senha"
-      subtitle="Escolha uma senha para voltar a acessar sua conta."
+      title="Escolha uma nova senha"
+      subtitle="Use 1 letra maiúscula, 1 número e 1 caractere especial."
       footer={
-        <Link to="/login" className="font-medium text-brand-600 hover:underline dark:text-brand-400">
+        <Link to="/login" className="font-bold text-sun-600 hover:underline">
           Voltar para o login
         </Link>
       }
     >
       {!token ? (
-        <p className="rounded-xl bg-red-50 px-3.5 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+        <p className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
           Link inválido: falta o código de verificação. Solicite a recuperação novamente.
         </p>
       ) : done ? (
-        <p className="rounded-xl bg-brand-50 px-3.5 py-3 text-sm text-brand-800 dark:bg-brand-950/40 dark:text-brand-300">
+        <p className="rounded-2xl bg-leaf-100 px-4 py-3.5 text-sm leading-relaxed text-leaf-800">
           Senha redefinida! Redirecionando para o login…
         </p>
       ) : (
@@ -77,12 +77,12 @@ export function ResetPasswordPage() {
             {...register('confirmPassword')}
           />
           {serverError && (
-            <p role="alert" className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+            <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
               {serverError}
             </p>
           )}
-          <Button type="submit" loading={isSubmitting}>
-            Redefinir senha
+          <Button type="submit" size="lg" loading={isSubmitting} className="w-full">
+            Salvar nova senha
           </Button>
         </form>
       )}

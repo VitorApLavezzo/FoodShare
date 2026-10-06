@@ -4,15 +4,15 @@ import { fetchSyncStatus, fetchSyncEvents } from '../../lib/sync';
 import { StatCard } from './StatCard';
 
 const STATUS_BADGE: Record<string, string> = {
-  ONLINE: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-400',
-  OFFLINE: 'bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400',
-  DEGRADED: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400',
+  ONLINE: 'bg-leaf-100 text-leaf-800',
+  OFFLINE: 'bg-stone-100 text-ink-soft',
+  DEGRADED: 'bg-sun-100 text-sun-800',
 };
 
 const EVENT_STATUS_BADGE: Record<string, string> = {
-  SYNCED: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-400',
-  PENDING: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400',
-  FAILED: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400',
+  SYNCED: 'bg-leaf-100 text-leaf-800',
+  PENDING: 'bg-sun-100 text-sun-800',
+  FAILED: 'bg-danger-50 text-danger',
 };
 
 function formatDate(value: string | null) {
@@ -22,8 +22,16 @@ function formatDate(value: string | null) {
 
 export function NodesSyncPanel() {
   const nodesQuery = useQuery({ queryKey: ['nodes'], queryFn: fetchNodes, refetchInterval: 15_000 });
-  const statusQuery = useQuery({ queryKey: ['sync-status'], queryFn: fetchSyncStatus, refetchInterval: 10_000 });
-  const eventsQuery = useQuery({ queryKey: ['sync-events'], queryFn: fetchSyncEvents, refetchInterval: 10_000 });
+  const statusQuery = useQuery({
+    queryKey: ['sync-status'],
+    queryFn: fetchSyncStatus,
+    refetchInterval: 10_000,
+  });
+  const eventsQuery = useQuery({
+    queryKey: ['sync-events'],
+    queryFn: fetchSyncEvents,
+    refetchInterval: 10_000,
+  });
 
   // "Nó" identifica qual servidor processou a requisição, não a localização
   // geográfica da organização/doação — com um único servidor rodando, essa
@@ -35,8 +43,8 @@ export function NodesSyncPanel() {
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">Nós & Sincronização</h2>
-      <p className="mt-1 text-sm text-neutral-500">
+      <h2 className="font-display text-[22px] font-semibold text-leaf-800">Nós & Sincronização</h2>
+      <p className="mt-1 text-sm text-ink-muted">
         Múltiplos nós detectados — cada um é uma instância independente do backend, identificada por onde a
         requisição foi processada (não pela cidade da organização).
       </p>
@@ -49,9 +57,9 @@ export function NodesSyncPanel() {
         </div>
       )}
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
+      <div className="mt-4 overflow-hidden rounded-[22px] border border-line bg-surface">
         <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-xs uppercase text-neutral-500 dark:bg-neutral-900">
+          <thead className="bg-sand-soft text-left text-xs font-bold tracking-[0.04em] text-ink-muted uppercase">
             <tr>
               <th className="px-4 py-2">Nó</th>
               <th className="px-4 py-2">Cidade</th>
@@ -60,27 +68,27 @@ export function NodesSyncPanel() {
               <th className="px-4 py-2">Eventos pendentes</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
+          <tbody className="divide-y divide-sand">
             {nodesQuery.data?.map((node) => (
               <tr key={node.id}>
-                <td className="px-4 py-2 font-medium text-neutral-900 dark:text-white">{node.code}</td>
-                <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">
+                <td className="px-4 py-2.5 font-semibold text-ink">{node.code}</td>
+                <td className="px-4 py-2.5 text-ink-soft">
                   {node.city}/{node.state}
                 </td>
                 <td className="px-4 py-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[node.status]}`}>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[node.status]}`}
+                  >
                     {node.status}
                   </span>
                 </td>
-                <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">
-                  {formatDate(node.lastHeartbeat)}
-                </td>
-                <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{node.pendingEvents}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{formatDate(node.lastHeartbeat)}</td>
+                <td className="px-4 py-2.5 text-ink-soft">{node.pendingEvents}</td>
               </tr>
             ))}
             {nodesQuery.data?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-4 text-center text-neutral-500">
+                <td colSpan={5} className="px-4 py-6 text-center text-ink-muted">
                   Nenhum nó registrado ainda.
                 </td>
               </tr>
@@ -89,27 +97,32 @@ export function NodesSyncPanel() {
         </table>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
-        <div className="border-b border-neutral-200 px-4 py-2 text-xs font-medium uppercase text-neutral-500 dark:border-neutral-800">
+      <div className="mt-4 overflow-hidden rounded-[22px] border border-line bg-surface">
+        <div className="border-b border-line bg-sand-soft px-4 py-2.5 text-xs font-bold tracking-[0.04em] text-ink-muted uppercase">
           Eventos de sincronização recentes
         </div>
-        <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+        <ul className="divide-y divide-sand">
           {eventsQuery.data?.slice(0, 15).map((event) => (
             <li key={event.id} className="flex items-center justify-between px-4 py-2 text-sm">
               <div>
-                <span className="font-medium text-neutral-900 dark:text-white">{event.eventType}</span>
-                <span className="text-neutral-500"> · origem {event.originNode} · seq {event.sequence}</span>
+                <span className="font-semibold text-ink">{event.eventType}</span>
+                <span className="text-ink-muted">
+                  {' '}
+                  · origem {event.originNode} · seq {event.sequence}
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${EVENT_STATUS_BADGE[event.status]}`}>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${EVENT_STATUS_BADGE[event.status]}`}
+                >
                   {event.status}
                 </span>
-                <span className="text-xs text-neutral-500">{formatDate(event.createdAt)}</span>
+                <span className="text-xs text-ink-muted">{formatDate(event.createdAt)}</span>
               </div>
             </li>
           ))}
           {eventsQuery.data?.length === 0 && (
-            <li className="px-4 py-4 text-center text-sm text-neutral-500">Nenhum evento ainda.</li>
+            <li className="px-4 py-6 text-center text-sm text-ink-muted">Nenhum evento ainda.</li>
           )}
         </ul>
       </div>

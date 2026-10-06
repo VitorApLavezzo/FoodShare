@@ -35,8 +35,8 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 const inputClass =
-  'w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-neutral-700 dark:bg-neutral-900';
-const labelClass = 'mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300';
+  'w-full rounded-2xl border-[1.5px] border-line-strong bg-canvas px-3.5 py-3 text-[15px] text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none';
+const labelClass = 'mb-1.5 block text-sm font-semibold text-ink-body';
 
 const emptyItem = {
   foodName: '',
@@ -88,11 +88,15 @@ function ItemImageField({
       <label className={labelClass}>Foto (opcional)</label>
       {imageUrl ? (
         <div className="flex items-center gap-3">
-          <img src={`${API_URL}${imageUrl}`} alt="Prévia do alimento" className="h-16 w-16 rounded-lg object-cover" />
+          <img
+            src={`${API_URL}${imageUrl}`}
+            alt="Prévia do alimento"
+            className="h-16 w-16 rounded-lg object-cover"
+          />
           <button
             type="button"
             onClick={() => setValue(`items.${index}.imageUrl`, '', { shouldDirty: true })}
-            className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+            className="text-xs font-semibold text-danger transition hover:underline"
           >
             Remover
           </button>
@@ -103,11 +107,11 @@ function ItemImageField({
           accept="image/jpeg,image/png,image/webp"
           onChange={handleChange}
           disabled={uploading}
-          className="w-full text-sm text-neutral-600 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-neutral-200 dark:text-neutral-400 dark:file:bg-neutral-800"
+          className="w-full text-sm text-ink-soft file:mr-3 file:rounded-full file:border-0 file:bg-sand file:px-4 file:py-2 file:text-sm file:font-semibold file:text-leaf-800 hover:file:bg-line-strong"
         />
       )}
-      {uploading && <p className="mt-1 text-xs text-neutral-500">Enviando…</p>}
-      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {uploading && <p className="mt-1 text-xs text-ink-muted">Enviando…</p>}
+      {error && <p className="mt-1 text-xs font-semibold text-danger">{error}</p>}
     </div>
   );
 }
@@ -147,14 +151,14 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
       <div className="flex flex-col gap-4">
         {fields.map((field, index) => (
-          <div key={field.id} className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+          <div key={field.id} className="rounded-[22px] border border-line bg-canvas p-5">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Item {index + 1}</h4>
+              <h4 className="text-sm font-bold text-leaf-800">Item {index + 1}</h4>
               {fields.length > 1 && (
                 <button
                   type="button"
                   onClick={() => remove(index)}
-                  className="text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                  className="text-xs font-semibold text-danger transition hover:underline"
                 >
                   Remover
                 </button>
@@ -166,7 +170,9 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
                 <label className={labelClass}>Alimento</label>
                 <input className={inputClass} {...register(`items.${index}.foodName`)} />
                 {errors.items?.[index]?.foodName && (
-                  <p className="mt-1 text-sm text-red-600">{errors.items[index]?.foodName?.message}</p>
+                  <p className="mt-1.5 text-xs font-semibold text-danger">
+                    {errors.items[index]?.foodName?.message}
+                  </p>
                 )}
               </div>
               <div>
@@ -192,14 +198,18 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
                   {...register(`items.${index}.quantity`)}
                 />
                 {errors.items?.[index]?.quantity && (
-                  <p className="mt-1 text-sm text-red-600">{errors.items[index]?.quantity?.message}</p>
+                  <p className="mt-1.5 text-xs font-semibold text-danger">
+                    {errors.items[index]?.quantity?.message}
+                  </p>
                 )}
               </div>
               <div>
                 <label className={labelClass}>Unidade (kg, un, L…)</label>
                 <input className={inputClass} {...register(`items.${index}.unit`)} />
                 {errors.items?.[index]?.unit && (
-                  <p className="mt-1 text-sm text-red-600">{errors.items[index]?.unit?.message}</p>
+                  <p className="mt-1.5 text-xs font-semibold text-danger">
+                    {errors.items[index]?.unit?.message}
+                  </p>
                 )}
               </div>
             </div>
@@ -226,17 +236,17 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
         <button
           type="button"
           onClick={() => append(emptyItem)}
-          className="self-start rounded-lg border border-dashed border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-600 hover:border-brand-500 hover:text-brand-600 dark:border-neutral-700 dark:text-neutral-400"
+          className="self-start rounded-full border-[1.5px] border-dashed border-line-bold px-4 py-2 text-sm font-semibold text-ink-soft transition hover:border-leaf-600 hover:text-leaf-800"
         >
           + Adicionar item
         </button>
       </div>
 
-      <label className="flex items-start gap-2 rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800">
+      <label className="flex items-start gap-2.5 rounded-2xl border border-line bg-canvas p-4 text-sm text-ink-soft">
         <input type="checkbox" className="mt-0.5" {...register('allowPartial')} />
         <span>
-          Permitir que a ONG reserve parcialmente (escolher só alguns itens, ou parte da quantidade de cada um). Se
-          desmarcado, a reserva só pode ser feita para a lista inteira, de uma vez.
+          Permitir que a ONG reserve parcialmente (escolher só alguns itens, ou parte da quantidade de cada
+          um). Se desmarcado, a reserva só pode ser feita para a lista inteira, de uma vez.
         </span>
       </label>
 
@@ -244,19 +254,23 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
         <div>
           <label className={labelClass}>Disponível a partir de</label>
           <input type="datetime-local" className={inputClass} {...register('availableAt')} />
-          {errors.availableAt && <p className="mt-1 text-sm text-red-600">{errors.availableAt.message}</p>}
+          {errors.availableAt && (
+            <p className="mt-1.5 text-xs font-semibold text-danger">{errors.availableAt.message}</p>
+          )}
         </div>
         <div>
           <label className={labelClass}>Prazo limite de retirada</label>
           <input type="datetime-local" className={inputClass} {...register('pickupDeadline')} />
           {errors.pickupDeadline && (
-            <p className="mt-1 text-sm text-red-600">{errors.pickupDeadline.message}</p>
+            <p className="mt-1.5 text-xs font-semibold text-danger">{errors.pickupDeadline.message}</p>
           )}
         </div>
         <div>
           <label className={labelClass}>Validade</label>
           <input type="datetime-local" className={inputClass} {...register('expiresAt')} />
-          {errors.expiresAt && <p className="mt-1 text-sm text-red-600">{errors.expiresAt.message}</p>}
+          {errors.expiresAt && (
+            <p className="mt-1.5 text-xs font-semibold text-danger">{errors.expiresAt.message}</p>
+          )}
         </div>
       </div>
 
@@ -265,12 +279,12 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
         <input className={inputClass} {...register('notes')} />
       </div>
 
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-ink-muted">
         Lembre-se de seguir as normas sanitárias aplicáveis ao armazenamento e transporte de alimentos.
       </p>
 
       {serverError && (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+        <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
           {serverError}
         </p>
       )}
@@ -278,7 +292,7 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
       <button
         type="submit"
         disabled={isSubmitting}
-        className="self-start rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-60"
+        className="self-start rounded-full bg-leaf-800 px-[22px] py-2.5 text-[15px] font-bold text-canvas shadow-[0_2px_0_var(--color-leaf-900)] transition hover:bg-leaf-600 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isSubmitting ? 'Publicando…' : 'Publicar doação'}
       </button>

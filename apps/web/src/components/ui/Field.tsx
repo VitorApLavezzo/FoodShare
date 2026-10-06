@@ -6,8 +6,21 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 
+/**
+ * Campo de digitação: canto de 16px, não pílula.
+ *
+ * O sistema separa as duas formas de propósito — pílula é filtro ou ação, que
+ * se lê de relance; retângulo arredondado é onde se escreve. Um formulário
+ * inteiro de pílulas faria tudo parecer botão.
+ */
 const baseInputClass =
-  'w-full rounded-xl border border-neutral-300 bg-white px-3.5 py-2.5 text-sm text-neutral-900 shadow-sm transition placeholder:text-neutral-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-white dark:focus:ring-brand-500/25';
+  'w-full rounded-2xl border-[1.5px] border-line-strong bg-canvas px-3.5 py-3 text-[15px] text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none disabled:border-line disabled:bg-sand-muted disabled:text-ink-muted';
+
+const errorInputClass = 'border-danger focus:border-danger focus:ring-danger/15';
+
+/** Controle de filtro ou barra de ferramentas: pílula, e sempre compacto. */
+export const FILTER_CONTROL_CLASS =
+  'rounded-full border-[1.5px] border-line-strong bg-canvas px-4 py-2 text-sm text-ink-body transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none';
 
 function FieldWrapper({
   label,
@@ -31,15 +44,12 @@ function FieldWrapper({
   return (
     <div>
       {label && (
-        <label
-          htmlFor={htmlFor}
-          className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300"
-        >
+        <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-semibold text-ink-body">
           {label}
-          {/* O asterisco é decorativo: o campo já carrega `required`, e repetir
-              "obrigatório" no leitor de tela a cada rótulo só atrapalha. */}
+          {/* Decorativo: o campo já carrega `required`, e repetir "obrigatório"
+              no leitor de tela a cada rótulo só atrapalha. */}
           {required && (
-            <span aria-hidden="true" className="ml-0.5 text-red-600 dark:text-red-400">
+            <span aria-hidden="true" className="ml-0.5 text-danger">
               *
             </span>
           )}
@@ -47,19 +57,15 @@ function FieldWrapper({
       )}
       <div className="relative">
         {icon && (
-          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400">
+          <span className="pointer-events-none absolute top-1/2 left-3.5 flex -translate-y-1/2 text-ink-faint">
             {icon}
           </span>
         )}
         {children}
-        {rightElement && <span className="absolute right-2 top-1/2 -translate-y-1/2">{rightElement}</span>}
+        {rightElement && <span className="absolute top-1/2 right-3 -translate-y-1/2">{rightElement}</span>}
       </div>
-      {error && (
-        <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      {!error && hint && <div className="mt-1.5 text-xs text-neutral-500">{hint}</div>}
+      {error && <p className="mt-1.5 text-xs font-semibold text-danger">{error}</p>}
+      {!error && hint && <div className="mt-1.5 text-xs text-ink-muted">{hint}</div>}
     </div>
   );
 }
@@ -86,7 +92,7 @@ export const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
       <input
         ref={ref}
         id={id}
-        className={`${baseInputClass} ${icon ? 'pl-10' : ''} ${rightElement ? 'pr-10' : ''} ${error ? 'border-red-400 focus:border-red-500 focus:ring-red-500/15' : ''} ${className}`}
+        className={`${baseInputClass} ${icon ? 'pl-11' : ''} ${rightElement ? 'pr-11' : ''} ${error ? errorInputClass : ''} ${className}`}
         aria-invalid={!!error}
         {...props}
       />
@@ -98,13 +104,19 @@ InputField.displayName = 'InputField';
 interface TextareaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
   error?: string;
-  hint?: string;
+  hint?: ReactNode;
 }
 
 export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaFieldProps>(
   ({ label, error, hint, className = '', id, ...props }, ref) => (
     <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} required={props.required}>
-      <textarea ref={ref} id={id} className={`${baseInputClass} resize-none ${className}`} {...props} />
+      <textarea
+        ref={ref}
+        id={id}
+        className={`${baseInputClass} resize-none ${error ? errorInputClass : ''} ${className}`}
+        aria-invalid={!!error}
+        {...props}
+      />
     </FieldWrapper>
   ),
 );
@@ -113,21 +125,28 @@ TextareaField.displayName = 'TextareaField';
 interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
-  hint?: string;
+  hint?: ReactNode;
 }
 
 export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
   ({ label, error, hint, className = '', id, children, ...props }, ref) => (
     <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} required={props.required}>
-      <select ref={ref} id={id} className={`${baseInputClass} appearance-none pr-9 ${className}`} {...props}>
+      <select
+        ref={ref}
+        id={id}
+        className={`${baseInputClass} appearance-none pr-10 ${error ? errorInputClass : ''} ${className}`}
+        aria-invalid={!!error}
+        {...props}
+      >
         {children}
       </select>
       <svg
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400"
+        className="pointer-events-none absolute top-1/2 right-3.5 -translate-y-1/2 text-ink-faint"
         width="16"
         height="16"
         viewBox="0 0 20 20"
         fill="currentColor"
+        aria-hidden
       >
         <path
           fillRule="evenodd"

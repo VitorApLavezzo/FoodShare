@@ -6,8 +6,8 @@ import { useToast } from '../context/ToastContext';
 import { Button } from './ui/Button';
 
 const inputClass =
-  'w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 dark:border-neutral-700 dark:bg-neutral-900';
-const labelClass = 'mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300';
+  'w-full rounded-2xl border-[1.5px] border-line-strong bg-canvas px-3.5 py-3 text-[15px] text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none';
+const labelClass = 'mb-1.5 block text-sm font-semibold text-ink-body';
 
 function toLocalInputValue(iso: string) {
   const date = new Date(iso);
@@ -52,10 +52,11 @@ export function EditDonationListForm({
         e.preventDefault();
         mutation.mutate();
       }}
-      className="mt-3 flex flex-col gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"
+      className="mt-3 flex flex-col gap-3 rounded-2xl border border-line bg-canvas p-4"
     >
-      <p className="text-xs text-neutral-500">
-        Só é possível editar os itens ainda intactos: nome/quantidade dos alimentos não podem ser alterados após a publicação.
+      <p className="text-xs text-ink-muted">
+        Só é possível editar os itens ainda intactos: nome/quantidade dos alimentos não podem ser alterados
+        após a publicação.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
@@ -90,7 +91,7 @@ export function EditDonationListForm({
         <label className={labelClass}>Observações</label>
         <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-sm font-semibold text-danger">{error}</p>}
       <div className="flex gap-2">
         <Button type="submit" size="sm" loading={mutation.isPending}>
           Salvar alterações

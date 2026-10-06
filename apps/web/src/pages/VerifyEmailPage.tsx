@@ -35,22 +35,20 @@ export function VerifyEmailPage() {
 
   return (
     <AuthLayout
-      title="Confirmação de e-mail"
-      subtitle="Confirmar o e-mail garante que você receba os alertas de doação."
+      title={status === 'ok' ? 'E-mail confirmado!' : 'Confirmação de e-mail'}
+      subtitle="Com o e-mail confirmado, os alertas de doação chegam certinho pra você."
       footer={
-        <Link to="/login" className="font-medium text-brand-600 hover:underline dark:text-brand-400">
+        <Link to="/login" className="font-bold text-sun-600 hover:underline">
           Ir para o login
         </Link>
       }
     >
-      {status === 'verificando' && <p className="text-sm text-neutral-500">Confirmando…</p>}
+      {status === 'verificando' && <p className="text-sm text-ink-muted">Confirmando…</p>}
       {status === 'ok' && (
-        <p className="rounded-xl bg-brand-50 px-3.5 py-3 text-sm text-brand-800 dark:bg-brand-950/40 dark:text-brand-300">
-          {message}
-        </p>
+        <p className="rounded-2xl bg-leaf-100 px-4 py-3.5 text-sm leading-relaxed text-leaf-800">{message}</p>
       )}
       {status === 'erro' && (
-        <p role="alert" className="rounded-xl bg-red-50 px-3.5 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+        <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
           {message}
         </p>
       )}

@@ -85,11 +85,14 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
   };
 
   return (
-    <div className="flex h-96 flex-col rounded-xl border border-neutral-200 dark:border-neutral-800">
-      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
-        <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Conversa sobre a retirada</span>
+    <div className="flex h-96 flex-col overflow-hidden rounded-[22px] border border-line bg-surface">
+      <div className="flex items-center justify-between border-b border-line bg-sand-soft px-4 py-2.5">
+        <span className="text-sm font-semibold text-ink-body">Conversa sobre a retirada</span>
         {onClose && (
-          <button onClick={onClose} className="text-sm text-neutral-500 hover:underline">
+          <button
+            onClick={onClose}
+            className="text-sm font-semibold text-ink-muted hover:text-leaf-800 hover:underline"
+          >
             Fechar
           </button>
         )}
@@ -110,9 +113,7 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
               <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                 <div
                   className={`max-w-[75%] rounded-lg px-3 py-1.5 text-sm ${
-                    mine
-                      ? 'bg-brand-600 text-white'
-                      : 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white'
+                    mine ? 'bg-leaf-800 text-canvas' : 'bg-sand text-ink'
                   }`}
                 >
                   <p className="whitespace-pre-wrap break-words">{message.body}</p>
@@ -126,7 +127,7 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
       </div>
 
       {sendError && (
-        <p role="alert" className="px-3 pb-1 text-xs text-red-600 dark:text-red-400">
+        <p role="alert" className="px-3 pb-1 text-xs font-semibold text-danger">
           {sendError}
         </p>
       )}
@@ -136,14 +137,14 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
           e.preventDefault();
           send();
         }}
-        className="flex items-center gap-2 border-t border-neutral-200 px-3 py-2 dark:border-neutral-800"
+        className="flex items-center gap-2 border-t border-line px-3 py-2.5"
       >
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           maxLength={2000}
           placeholder="Escreva uma mensagem…"
-          className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          className="flex-1 rounded-full border-[1.5px] border-line-strong bg-canvas px-4 py-2 text-sm text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none"
         />
         <Button type="submit" size="sm" loading={sending} disabled={!draft.trim()}>
           Enviar

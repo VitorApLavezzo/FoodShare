@@ -6,14 +6,17 @@ import { cancelReservation, fetchReservations, type Reservation } from '../lib/r
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
 import { ChatPanel } from './ChatPanel';
+import { Badge, type BadgeTone } from './ui/Badge';
+import { InlineButton, InlineDangerButton } from './ui/Button';
 import { QueryState } from './ui/QueryState';
 import { useAuth } from '../context/AuthContext';
 
-const STATUS_BADGE: Record<Reservation['status'], string> = {
-  ACTIVE: 'bg-brand-100 text-brand-800 dark:bg-brand-950/40 dark:text-brand-400',
-  CANCELLED: 'bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-400',
-  COMPLETED: 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-400',
-  EXPIRED: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400',
+const STATUS_TONE: Record<Reservation['status'], BadgeTone> = {
+  ACTIVE: 'leaf',
+  CANCELLED: 'stone',
+  COMPLETED: 'dusk',
+  // Não retirada é aviso, não encerramento tranquilo: fica no âmbar.
+  EXPIRED: 'sun',
 };
 
 export function ReservationsList() {
@@ -80,81 +83,78 @@ export function ReservationsList() {
       isError={query.isError}
       error={query.error}
       isEmpty={items.length === 0}
-      emptyMessage={isNgo ? 'Você ainda não fez nenhuma reserva.' : 'Nenhuma reserva recebida ainda.'}
+      emptyMessage={isNgo ? 'Você ainda não reservou nada.' : 'Nenhuma reserva recebida ainda.'}
       onRetry={() => query.refetch()}
     >
       <div className="flex flex-col gap-3">
         {error && (
-          <p
-            role="alert"
-            className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
-          >
+          <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
             {error}
           </p>
         )}
         {items.map((reservation) => (
-          <div
+          <article
             key={reservation.id}
-            className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
+            className="flex flex-col gap-2 rounded-[22px] border border-line bg-surface p-5"
           >
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="font-semibold text-neutral-900 dark:text-white">
+              <div className="min-w-0">
+                <h3 className="text-[17px] font-bold text-ink">
                   {reservation.items
                     .map((i) => i.donationItem?.foodName ?? '')
                     .filter(Boolean)
                     .join(', ')}
                 </h3>
-                <p className="text-sm text-neutral-500">
+                <p className="mt-0.5 text-sm text-ink-muted">
                   {reservation.items
                     .map((i) => formatQuantity(i.quantity, i.donationItem?.unit ?? ''))
                     .join(' · ')}
                 </p>
-                {/* O código é apresentado pela ONG ao doador no momento da
-                    retirada: se o doador também o visse na tela, poderia
-                    confirmar sozinho e a conferência presencial perderia o
-                    sentido. */}
-                {isNgo && (
-                  <p className="mt-1 text-sm text-neutral-500">
-                    Código de retirada: <span className="font-mono">{reservation.pickupCode}</span>
-                  </p>
-                )}
               </div>
-              <span
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${STATUS_BADGE[reservation.status]}`}
-              >
-                {STATUS_LABEL[reservation.status]}
-              </span>
+              <Badge tone={STATUS_TONE[reservation.status]}>{STATUS_LABEL[reservation.status]}</Badge>
             </div>
-            <p className="mt-2 text-xs text-neutral-500">
+
+            {/* O código é apresentado pela ONG ao doador no momento da retirada:
+                se o doador também o visse na tela, poderia confirmar sozinho e a
+                conferência presencial perderia o sentido. */}
+            {isNgo && reservation.status === 'ACTIVE' && (
+              <div className="flex items-center gap-2.5 text-sm text-ink-soft">
+                Código de retirada
+                <span className="rounded-[10px] bg-sun-50 px-3 py-1 font-mono text-base font-bold tracking-[0.2em] text-sun-800">
+                  {reservation.pickupCode}
+                </span>
+              </div>
+            )}
+
+            <p className="text-[13px] text-ink-muted">
               Reservada em {formatDateTime(reservation.reservedAt)} · retirada até{' '}
               {formatDateTime(reservation.donationList.pickupDeadline)}
             </p>
-            <div className="mt-3 flex items-center gap-4">
+
+            <div className="mt-0.5 flex items-center gap-4">
               {reservation.status === 'ACTIVE' && isNgo && (
-                <button
+                <InlineDangerButton
                   onClick={() => confirmCancel(reservation)}
                   disabled={cancelMutation.isPending}
-                  className="text-sm font-medium text-red-600 hover:underline disabled:opacity-60 dark:text-red-400"
                 >
                   Cancelar reserva
-                </button>
+                </InlineDangerButton>
               )}
               {reservation.conversationId && (
-                <button
+                <InlineButton
                   onClick={() => setOpenChatId((prev) => (prev === reservation.id ? null : reservation.id))}
-                  className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
                 >
                   {openChatId === reservation.id ? 'Fechar conversa' : 'Conversar'}
-                </button>
+                </InlineButton>
               )}
             </div>
+
             {openChatId === reservation.id && reservation.conversationId && (
-              <div className="mt-3">
+              <div className="mt-2">
                 <ChatPanel conversationId={reservation.conversationId} />
               </div>
             )}
-          </div>
+          </article>
         ))}
       </div>
     </QueryState>

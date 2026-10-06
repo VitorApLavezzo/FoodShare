@@ -6,9 +6,13 @@ import { formatDateTime } from '../lib/format';
 import { AppHeader } from '../components/layout/AppHeader';
 import { QueryState } from '../components/ui/QueryState';
 import { Button } from '../components/ui/Button';
+import { RoleBadge, type BadgeTone } from '../components/ui/Badge';
 import { useToast } from '../context/ToastContext';
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: 'Administrador', DONOR: 'Doador', NGO: 'ONG' };
+
+// Mesma legenda de cor do resto do app: laranja publica, verde recebe.
+const ROLE_TONE: Record<string, BadgeTone> = { ADMIN: 'ink', DONOR: 'sun', NGO: 'leaf' };
 
 /** Moderação de usuários: até então não havia nenhuma forma de tirar do ar quem abusasse da plataforma. */
 export function AdminUsersPage() {
@@ -49,25 +53,29 @@ export function AdminUsersPage() {
   return (
     <div>
       <AppHeader />
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        <h1 className="font-display text-2xl font-medium text-neutral-900 dark:text-white">Usuários</h1>
-        <p className="text-sm text-neutral-500">Bloqueie contas em caso de abuso; o acesso cai na hora.</p>
+      <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 pt-8 pb-20">
+        <div>
+          <h1 className="font-display text-[2.125rem] leading-tight font-semibold text-leaf-800">Usuários</h1>
+          <p className="mt-1 text-[15px] text-ink-muted">
+            Bloqueie contas em caso de abuso; o acesso cai na hora.
+          </p>
+        </div>
 
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por nome ou e-mail…"
           aria-label="Buscar usuário"
-          className="mt-4 w-full max-w-sm rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          className="w-full max-w-sm rounded-full border-[1.5px] border-line-strong bg-surface px-4.5 py-2.5 text-sm text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:ring-4 focus:ring-leaf-600/15 focus:outline-none"
         />
 
         {error && (
-          <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+          <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
             {error}
           </p>
         )}
 
-        <div className="mt-4">
+        <div>
           <QueryState
             isLoading={query.isLoading}
             isError={query.isError}
@@ -76,31 +84,34 @@ export function AdminUsersPage() {
             emptyMessage="Nenhum usuário encontrado."
             onRetry={() => query.refetch()}
           >
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2.5">
               {items.map((user) => (
                 <div
                   key={user.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-line bg-surface px-5 py-4"
                 >
-                  <div className="min-w-0">
-                    <p className="font-medium text-neutral-900 dark:text-white">
-                      {user.name}{' '}
-                      <span className="text-xs font-normal text-neutral-500">({ROLE_LABEL[user.role] ?? user.role})</span>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <p className="flex flex-wrap items-center gap-2 text-base font-bold text-ink">
+                      {user.name}
+                      <RoleBadge tone={ROLE_TONE[user.role] ?? 'stone'}>
+                        {ROLE_LABEL[user.role] ?? user.role}
+                      </RoleBadge>
                     </p>
-                    <p className="text-sm text-neutral-500">{user.email}</p>
-                    <p className="mt-0.5 text-xs text-neutral-400">
+                    <p className="text-sm text-ink-muted">{user.email}</p>
+                    <p className="mt-0.5 text-xs text-ink-dim">
                       Desde {formatDateTime(user.createdAt)}
-                      {user.organizationLinks[0] && <> · {user.organizationLinks[0].organization.tradeName}</>}
+                      {user.organizationLinks[0] && (
+                        <> · {user.organizationLinks[0].organization.tradeName}</>
+                      )}
                       {!user.emailVerifiedAt && <> · e-mail não confirmado</>}
                     </p>
                     {!user.isActive && user.deactivatedReason && (
-                      <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                      <p className="mt-1 text-xs font-semibold text-danger">
                         Bloqueado: {user.deactivatedReason}
                       </p>
                     )}
                   </div>
                   <Button
-                    size="sm"
                     variant={user.isActive ? 'danger' : 'secondary'}
                     loading={mutation.isPending}
                     onClick={() => toggle(user)}

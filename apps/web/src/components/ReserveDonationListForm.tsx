@@ -12,6 +12,35 @@ interface ItemSelection {
   quantity: string;
 }
 
+/** Alternador Tudo/Parcial: dois estados excludentes, sem rádio solto na linha. */
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: 'all' | 'partial';
+  onChange: (mode: 'all' | 'partial') => void;
+}) {
+  const option = (value: 'all' | 'partial', label: string) => (
+    <button
+      type="button"
+      onClick={() => onChange(value)}
+      aria-pressed={mode === value}
+      className={`rounded-full px-3 py-1 text-[13px] font-semibold transition ${
+        mode === value ? 'bg-leaf-800 text-canvas' : 'text-ink-soft hover:text-leaf-800'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="flex rounded-full bg-sand p-[3px]">
+      {option('all', 'Tudo')}
+      {option('partial', 'Parcial')}
+    </div>
+  );
+}
+
 export function ReserveDonationListForm({ donationList }: { donationList: DonationList }) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -101,95 +130,89 @@ export function ReserveDonationListForm({ donationList }: { donationList: Donati
     mutation.mutate(items);
   };
 
-  if (!donationList.allowPartial) {
-    return (
-      <div className="mt-3">
-        {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
-        <Button size="sm" loading={mutation.isPending} disabled={mutation.isPending} onClick={submit}>
-          Reservar tudo ({availableItems.length} {availableItems.length === 1 ? 'item' : 'itens'})
-        </Button>
-      </div>
-    );
-  }
+  const update = (id: string, patch: Partial<ItemSelection>) =>
+    setSelections((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
   return (
-    <div className="mt-3 flex flex-col gap-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-      {availableItems.map((item) => {
-        const selection = selections[item.id];
-        return (
-          <div key={item.id} className="flex flex-wrap items-center gap-2 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={selection?.selected ?? false}
-                onChange={(e) =>
-                  setSelections((prev) => ({
-                    ...prev,
-                    [item.id]: { ...prev[item.id], selected: e.target.checked },
-                  }))
-                }
-              />
-              <span>
-                {item.foodName} ({item.remainingQuantity} {item.unit} disponíveis)
-              </span>
-            </label>
-            {selection?.selected && (
-              <div className="ml-6 flex items-center gap-2">
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name={`mode-${item.id}`}
-                    checked={selection.mode === 'all'}
-                    onChange={() =>
-                      setSelections((prev) => ({ ...prev, [item.id]: { ...prev[item.id], mode: 'all' } }))
-                    }
-                  />
-                  Tudo
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name={`mode-${item.id}`}
-                    checked={selection.mode === 'partial'}
-                    onChange={() =>
-                      setSelections((prev) => ({ ...prev, [item.id]: { ...prev[item.id], mode: 'partial' } }))
-                    }
-                  />
-                  Parcial
-                </label>
-                {selection.mode === 'partial' && (
-                  <input
-                    type="number"
-                    min={0}
-                    max={item.remainingQuantity}
-                    step="any"
-                    value={selection.quantity}
-                    onChange={(e) =>
-                      setSelections((prev) => ({
-                        ...prev,
-                        [item.id]: { ...prev[item.id], quantity: e.target.value },
-                      }))
-                    }
-                    placeholder={`até ${item.remainingQuantity}`}
-                    className="w-24 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900"
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+    <section className="flex flex-col gap-3.5 rounded-3xl bg-leaf-800 p-6">
+      <div>
+        <h2 className="font-display text-[22px] font-semibold text-canvas">Reservar</h2>
+        <p className="mt-1 text-sm text-leaf-200">
+          {donationList.allowPartial
+            ? 'Escolha o que vai buscar. Dá pra levar tudo ou só uma parte.'
+            : 'Este doador pede que a lista seja levada inteira, de uma vez só.'}
+        </p>
+      </div>
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {donationList.allowPartial &&
+        availableItems.map((item) => {
+          const selection = selections[item.id];
+          const checked = selection?.selected ?? false;
+          return (
+            <div
+              key={item.id}
+              className="flex flex-wrap items-center gap-3 rounded-2xl bg-canvas px-3.5 py-3 text-sm"
+            >
+              <button
+                type="button"
+                onClick={() => update(item.id, { selected: !checked })}
+                aria-pressed={checked}
+                className="flex items-center gap-2.5 rounded-sm text-ink focus-visible:ring-4 focus-visible:ring-leaf-600/30 focus-visible:outline-none"
+              >
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-[7px] border-2 border-leaf-800 text-[13px] font-bold transition ${
+                    checked ? 'bg-leaf-800 text-canvas' : 'bg-surface text-transparent'
+                  }`}
+                  aria-hidden
+                >
+                  ✓
+                </span>
+                <span>
+                  <strong className="font-bold">{item.foodName}</strong> ({item.remainingQuantity} {item.unit}{' '}
+                  disponíveis)
+                </span>
+              </button>
+
+              {checked && (
+                <div className="ml-auto flex items-center gap-1.5">
+                  <ModeToggle mode={selection.mode} onChange={(mode) => update(item.id, { mode })} />
+                  {selection.mode === 'partial' && (
+                    <input
+                      type="number"
+                      min={0}
+                      max={item.remainingQuantity}
+                      step="any"
+                      value={selection.quantity}
+                      onChange={(e) => update(item.id, { quantity: e.target.value })}
+                      placeholder={`até ${item.remainingQuantity}`}
+                      aria-label={`Quantidade de ${item.foodName}`}
+                      className="w-[90px] rounded-full border-[1.5px] border-line-strong bg-surface px-3 py-1.5 text-[13px] text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:ring-4 focus:ring-leaf-600/20 focus:outline-none"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+      {error && (
+        <p role="alert" className="rounded-2xl bg-sun-50 px-4 py-3 text-sm font-semibold text-sun-900">
+          {error}
+        </p>
+      )}
+
       <Button
-        size="sm"
+        variant="accent"
+        size="md"
         className="self-start"
         loading={mutation.isPending}
         disabled={mutation.isPending}
         onClick={submit}
       >
-        Reservar selecionados
+        {donationList.allowPartial
+          ? 'Reservar selecionados'
+          : `Reservar tudo (${availableItems.length} ${availableItems.length === 1 ? 'item' : 'itens'})`}
       </Button>
-    </div>
+    </section>
   );
 }

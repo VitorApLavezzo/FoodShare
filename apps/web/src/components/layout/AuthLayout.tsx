@@ -2,10 +2,13 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Logo, LogoMark } from './Logo';
 
+// Os três pontos coloridos são a legenda do sistema inteiro: laranja é o que
+// está disponível, verde claro é quem reserva, verde escuro é a retirada
+// concluída. Quem entra já aprende o código de cores antes de logar.
 const HIGHLIGHTS = [
-  { icon: '🍞', text: 'Estabelecimentos publicam excedentes em segundos' },
-  { icon: '🤝', text: 'ONGs reservam com prioridade e sem conflito' },
-  { icon: '📍', text: 'Retirada rastreada, do prato até quem recebe' },
+  { dot: 'bg-sun-500', text: 'Estabelecimentos publicam o excedente em segundos' },
+  { dot: 'bg-leaf-600', text: 'ONGs reservam com prioridade e sem disputa' },
+  { dot: 'bg-leaf-800', text: 'Retirada acompanhada, do prato até quem recebe' },
 ];
 
 export function AuthLayout({
@@ -21,57 +24,41 @@ export function AuthLayout({
 }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-brand-800 p-10 text-white lg:flex">
-        <div className="bg-grain pointer-events-none absolute inset-0 opacity-40" />
-        <div
-          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-accent-500/30 blur-3xl"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -bottom-32 -left-16 h-96 w-96 rounded-full bg-brand-400/30 blur-3xl"
-          aria-hidden
-        />
-
-        <Link to="/" className="relative z-10">
-          <span className="inline-flex items-center gap-2">
-            <LogoMark className="h-9 w-9" />
-            <span className="font-display text-xl font-semibold tracking-tight">FoodShare</span>
-          </span>
+      <div className="hidden flex-col justify-between gap-10 border-r border-line bg-canvas p-10 lg:flex">
+        <Link to="/" className="self-start">
+          <Logo className="text-2xl" />
         </Link>
 
-        <div className="relative z-10 max-w-md">
-          <p className="font-display text-3xl font-medium leading-snug text-white">
-            Comida boa não devia virar lixo enquanto alguém passa fome.
+        <div className="flex max-w-md flex-col gap-7">
+          <LogoMark className="h-32 w-32" />
+          <p className="font-display text-[2.125rem] leading-[1.15] font-semibold text-balance text-leaf-800">
+            Comida boa não é pra virar lixo enquanto alguém passa fome.
           </p>
-          <ul className="mt-8 flex flex-col gap-4">
+          <ul className="flex flex-col gap-3.5">
             {HIGHLIGHTS.map((h) => (
-              <li key={h.text} className="flex items-center gap-3 text-sm text-brand-50">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-lg">
-                  {h.icon}
-                </span>
+              <li key={h.text} className="flex items-center gap-3 text-[15px] text-ink-soft">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${h.dot}`} aria-hidden />
                 {h.text}
               </li>
             ))}
           </ul>
         </div>
 
-        <p className="relative z-10 text-xs text-brand-100/70">
-          Plataforma distribuída · construída para múltiplas cidades e regiões
-        </p>
+        <p className="text-[13px] text-ink-muted">Feito pra funcionar em várias cidades e regiões</p>
       </div>
 
-      <div className="flex flex-col justify-center bg-white px-6 py-12 dark:bg-neutral-950 sm:px-12 lg:px-16">
-        <div className="mx-auto w-full max-w-sm">
+      <div className="flex flex-col justify-center bg-surface px-6 py-12 sm:px-12 lg:px-16">
+        <div className="mx-auto w-full max-w-[380px]">
           <div className="mb-8 lg:hidden">
             <Logo />
           </div>
 
-          <h1 className="font-display text-3xl font-semibold text-neutral-900 dark:text-white">{title}</h1>
-          <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>
+          <h1 className="font-display text-[2.125rem] leading-tight font-semibold text-leaf-800">{title}</h1>
+          <p className="mt-2 text-[15px] text-ink-muted">{subtitle}</p>
 
           <div className="mt-8">{children}</div>
 
-          <div className="mt-8 text-center text-sm text-neutral-500">{footer}</div>
+          <div className="mt-8 text-center text-sm text-ink-muted">{footer}</div>
         </div>
       </div>
     </div>

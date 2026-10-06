@@ -33,7 +33,10 @@ const passwordSchema = z
     newPassword: z
       .string()
       .min(8, 'A nova senha deve ter ao menos 8 caracteres.')
-      .regex(STRONG_PASSWORD_REGEX, 'A nova senha deve ter 1 letra maiúscula, 1 número e 1 caractere especial.'),
+      .regex(
+        STRONG_PASSWORD_REGEX,
+        'A nova senha deve ter 1 letra maiúscula, 1 número e 1 caractere especial.',
+      ),
     confirmPassword: z.string().min(1, 'Confirme a nova senha.'),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -42,13 +45,21 @@ const passwordSchema = z
   });
 type PasswordValues = z.infer<typeof passwordSchema>;
 
-function SectionCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function SectionCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-xl border border-neutral-200 p-6 dark:border-neutral-800">
-      <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">{title}</h2>
-      <p className="mt-1 text-sm text-neutral-500">{description}</p>
-      <div className="mt-5">{children}</div>
-    </div>
+    <section className="rounded-3xl border border-line bg-surface p-6">
+      <h2 className="font-display text-[22px] font-semibold text-leaf-800">{title}</h2>
+      <p className="mt-0.5 text-sm text-ink-muted">{description}</p>
+      <div className="mt-4">{children}</div>
+    </section>
   );
 }
 
@@ -60,7 +71,10 @@ function ProfileSection() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<ProfileValues>({ resolver: zodResolver(profileSchema), defaultValues: { name: user?.name ?? '' } });
+  } = useForm<ProfileValues>({
+    resolver: zodResolver(profileSchema),
+    defaultValues: { name: user?.name ?? '' },
+  });
 
   if (!user) return null;
 
@@ -79,14 +93,19 @@ function ProfileSection() {
     <SectionCard title="Perfil" description="Seu nome e informações básicas de acesso.">
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
         <InputField label="Nome" error={errors.name?.message} {...register('name')} />
-        <InputField label="E-mail" value={user.email} disabled hint="O e-mail de login não pode ser alterado." />
+        <InputField
+          label="E-mail"
+          value={user.email}
+          disabled
+          hint="O e-mail de login não pode ser alterado."
+        />
         <InputField label="Papel" value={ROLE_LABEL[user.role] ?? user.role} disabled />
         {serverError && (
-          <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+          <p role="alert" className="text-sm font-semibold text-danger">
             {serverError}
           </p>
         )}
-        <Button type="submit" size="sm" className="self-start" loading={isSubmitting} disabled={!isDirty}>
+        <Button type="submit" className="self-start" loading={isSubmitting} disabled={!isDirty}>
           Salvar alterações
         </Button>
       </form>
@@ -119,7 +138,7 @@ function PasswordSection() {
   };
 
   return (
-    <SectionCard title="Senha" description="Recomendado trocar periodicamente.">
+    <SectionCard title="Senha" description="Vale trocar de tempos em tempos.">
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
         <PasswordField
           label="Senha atual"
@@ -144,11 +163,11 @@ function PasswordSection() {
           />
         </div>
         {serverError && (
-          <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+          <p role="alert" className="text-sm font-semibold text-danger">
             {serverError}
           </p>
         )}
-        <Button type="submit" size="sm" className="self-start" loading={isSubmitting}>
+        <Button type="submit" className="self-start" loading={isSubmitting}>
           Trocar senha
         </Button>
       </form>
@@ -165,14 +184,18 @@ function OrganizationSection({ kind }: { kind: 'DONOR' | 'NGO' }) {
   });
 
   if (organizationQuery.isLoading) {
-    return <p className="text-sm text-neutral-500">Carregando dados da organização…</p>;
+    return <p className="text-sm text-ink-muted">Carregando dados da organização…</p>;
   }
   if (!organizationQuery.data) return null;
 
   return (
     <SectionCard
       title={kind === 'NGO' ? 'Dados da ONG' : 'Dados do estabelecimento'}
-      description="Essas informações aparecem para quem visualiza suas doações/reservas."
+      description={
+        kind === 'NGO'
+          ? 'É isso que os doadores veem quando você reserva uma doação.'
+          : 'É isso que as ONGs veem quando olham suas doações.'
+      }
     >
       <OrganizationForm
         kind={kind}
@@ -209,7 +232,8 @@ function PrivacySection() {
 
   const handleDelete = async () => {
     // Dupla confirmação: é irreversível e derruba a sessão.
-    if (!window.confirm('Excluir sua conta? Seus dados pessoais serão removidos e esta ação é irreversível.')) return;
+    if (!window.confirm('Excluir sua conta? Seus dados pessoais serão removidos e esta ação é irreversível.'))
+      return;
     if (!window.confirm('Confirma mesmo? Você perderá o acesso imediatamente.')) return;
 
     setBusy(true);
@@ -236,7 +260,7 @@ function PrivacySection() {
           Excluir minha conta
         </Button>
       </div>
-      <p className="mt-3 text-xs text-neutral-500">
+      <p className="mt-3.5 text-xs leading-relaxed text-ink-muted">
         O histórico de doações já concluídas é mantido de forma anônima, por ser registro também da outra
         organização envolvida.
       </p>
@@ -251,10 +275,14 @@ export function AccountPage() {
   return (
     <div>
       <AppHeader />
-      <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-10">
+      <div className="mx-auto flex max-w-2xl flex-col gap-5 px-6 pt-10 pb-20">
         <div>
-          <h1 className="font-display text-2xl font-medium text-neutral-900 dark:text-white">Minha conta</h1>
-          <p className="mt-1 text-sm text-neutral-500">Gerencie seu perfil, senha e dados da organização.</p>
+          <h1 className="font-display text-[2.125rem] leading-tight font-semibold text-leaf-800">
+            Minha conta
+          </h1>
+          <p className="mt-1 text-[15px] text-ink-muted">
+            Seu perfil, sua senha e os dados do seu estabelecimento, tudo num lugar só.
+          </p>
         </div>
 
         <ProfileSection />

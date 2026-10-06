@@ -99,52 +99,51 @@ export function NotificationsBell() {
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="relative rounded-lg p-2 text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full text-leaf-800 transition hover:bg-sand"
         aria-label="Notificações"
       >
         🔔
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
+          <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-sun-500 px-1 text-[10px] font-bold text-leaf-800">
             {unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="absolute right-0 z-40 mt-2 w-80 rounded-[22px] border border-line bg-surface p-2 shadow-[0_12px_32px_rgba(22,82,46,0.12)]">
           <div className="flex items-center justify-between px-1 pb-1">
-            <span className="text-xs font-semibold uppercase text-neutral-500">Notificações</span>
+            <span className="px-1 text-xs font-bold tracking-[0.04em] text-ink-muted uppercase">
+              Notificações
+            </span>
             {items.length > 0 && (
-              <button
-                onClick={clearAll}
-                className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
-              >
+              <button onClick={clearAll} className="text-xs font-bold text-leaf-600 hover:underline">
                 Limpar todas
               </button>
             )}
           </div>
 
-          {items.length === 0 && <p className="p-3 text-sm text-neutral-500">Sem notificações.</p>}
+          {items.length === 0 && (
+            <p className="p-3 text-sm text-ink-muted">Nada por aqui. Avisamos quando algo chegar.</p>
+          )}
 
           <div className="flex max-h-80 flex-col gap-1 overflow-y-auto">
             {items.map((notification) => (
               <div
                 key={notification.id}
-                className={`group flex items-start gap-2 rounded-lg p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                className={`group flex items-start gap-2 rounded-2xl p-2.5 transition hover:bg-sand ${
                   notification.readAt ? 'opacity-60' : ''
                 }`}
               >
                 <button onClick={() => openNotification(notification)} className="flex-1 text-left text-sm">
-                  <p className="font-medium text-neutral-900 dark:text-white">{notification.title}</p>
-                  <p className="text-xs text-neutral-500">{notification.message}</p>
-                  <p className="mt-0.5 text-[10px] text-neutral-400">
-                    {formatDateTime(notification.createdAt)}
-                  </p>
+                  <p className="font-semibold text-ink">{notification.title}</p>
+                  <p className="text-xs text-ink-muted">{notification.message}</p>
+                  <p className="mt-0.5 text-[10px] text-ink-dim">{formatDateTime(notification.createdAt)}</p>
                 </button>
                 <button
                   onClick={() => removeOne(notification.id)}
                   aria-label="Remover notificação"
-                  className="shrink-0 rounded p-1 text-neutral-400 opacity-0 hover:bg-neutral-200 hover:text-neutral-700 group-hover:opacity-100 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                  className="shrink-0 rounded-full p-1 text-ink-faint opacity-0 transition group-hover:opacity-100 hover:bg-line-strong hover:text-ink focus-visible:opacity-100"
                 >
                   ×
                 </button>

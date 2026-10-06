@@ -26,15 +26,17 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 const ROLE_OPTIONS = [
-  { value: 'DONOR', title: 'Doador', desc: 'Restaurante, mercado ou padaria', icon: '🍽️' },
-  { value: 'NGO', title: 'ONG', desc: 'Instituição receptora', icon: '🤲' },
+  { value: 'DONOR', title: 'Doador', desc: 'Restaurante, mercado ou padaria', dot: 'bg-sun-500' },
+  { value: 'NGO', title: 'ONG', desc: 'Instituição receptora', dot: 'bg-leaf-600' },
 ] as const;
 
 export function RegisterPage() {
   const { register: registerUser } = useAuth();
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>(
+    'idle',
+  );
 
   const {
     register,
@@ -84,21 +86,23 @@ export function RegisterPage() {
     }
   };
 
+  // A confirmação vem em verde e em negrito porque é a única dica do formulário
+  // que afirma algo em vez de instruir.
   const emailHint =
-    emailStatus === 'checking'
-      ? 'Verificando disponibilidade…'
-      : emailStatus === 'available'
-        ? '✓ E-mail disponível.'
-        : undefined;
+    emailStatus === 'checking' ? (
+      'Verificando disponibilidade…'
+    ) : emailStatus === 'available' ? (
+      <span className="font-semibold text-leaf-600">✓ E-mail disponível.</span>
+    ) : undefined;
 
   return (
     <AuthLayout
-      title="Crie sua conta"
-      subtitle="Cadastre seu estabelecimento ou sua ONG na plataforma."
+      title="Bora começar?"
+      subtitle="Cadastre seu estabelecimento ou sua ONG. É rapidinho."
       footer={
         <>
           Já tem conta?{' '}
-          <Link to="/login" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">
+          <Link to="/login" className="font-bold text-sun-600 hover:underline">
             Entrar
           </Link>
         </>
@@ -106,23 +110,21 @@ export function RegisterPage() {
     >
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
         <fieldset>
-          <legend className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Tipo de conta
-          </legend>
+          <legend className="mb-1.5 block text-sm font-semibold text-ink-body">Tipo de conta</legend>
           <div className="grid grid-cols-2 gap-3">
             {ROLE_OPTIONS.map((opt) => (
               <label
                 key={opt.value}
-                className={`flex cursor-pointer flex-col items-start gap-1 rounded-xl border-2 p-3 text-left transition ${
+                className={`flex cursor-pointer flex-col items-start gap-1 rounded-[20px] border-2 p-3.5 text-left transition focus-within:ring-4 focus-within:ring-leaf-600/20 ${
                   role === opt.value
-                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-950/30'
-                    : 'border-neutral-200 hover:border-neutral-300 dark:border-neutral-800 dark:hover:border-neutral-700'
+                    ? 'border-leaf-600 bg-leaf-50'
+                    : 'border-line bg-surface hover:border-line-bold'
                 }`}
               >
                 <input type="radio" value={opt.value} className="sr-only" {...register('role')} />
-                <span className="text-xl">{opt.icon}</span>
-                <span className="text-sm font-semibold text-neutral-900 dark:text-white">{opt.title}</span>
-                <span className="text-xs text-neutral-500">{opt.desc}</span>
+                <span className={`h-2.5 w-2.5 rounded-full ${opt.dot}`} aria-hidden />
+                <span className="mt-1 text-[15px] font-bold text-leaf-800">{opt.title}</span>
+                <span className="text-xs text-ink-muted">{opt.desc}</span>
               </label>
             ))}
           </div>
@@ -159,15 +161,12 @@ export function RegisterPage() {
         />
 
         {serverError && (
-          <p
-            role="alert"
-            className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700 dark:bg-red-950/40 dark:text-red-400"
-          >
+          <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
             {serverError}
           </p>
         )}
 
-        <Button type="submit" loading={isSubmitting} className="mt-1 w-full">
+        <Button type="submit" size="lg" loading={isSubmitting} className="mt-1 w-full">
           {isSubmitting ? 'Criando conta…' : 'Criar conta'}
         </Button>
       </form>

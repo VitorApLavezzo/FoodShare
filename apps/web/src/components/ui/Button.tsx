@@ -1,21 +1,28 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
-type Size = 'sm' | 'md';
+type Variant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
+type Size = 'sm' | 'md' | 'lg';
 
+/**
+ * A sombra sólida (`0 2px 0`) sob o botão primário é o único relevo do sistema
+ * — nenhum cartão tem sombra. É o que dá ao botão o ar de tecla e separa a ação
+ * principal de tudo o que é superfície.
+ */
 const VARIANT_CLASS: Record<Variant, string> = {
   primary:
-    'bg-brand-600 text-white shadow-sm hover:bg-brand-700 focus-visible:ring-brand-500/40 disabled:hover:bg-brand-600',
+    'bg-leaf-800 text-canvas font-bold shadow-[0_2px_0_var(--color-leaf-900)] hover:bg-leaf-600 focus-visible:ring-leaf-600/30 disabled:hover:bg-leaf-800',
+  accent:
+    'bg-sun-500 text-leaf-800 font-bold hover:bg-sun-400 focus-visible:ring-sun-500/30 disabled:hover:bg-sun-500',
   secondary:
-    'border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 focus-visible:ring-neutral-400/40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800',
-  ghost:
-    'text-neutral-600 hover:bg-neutral-100 focus-visible:ring-neutral-400/40 dark:text-neutral-300 dark:hover:bg-neutral-800',
-  danger: 'text-red-600 hover:bg-red-50 focus-visible:ring-red-500/30 dark:text-red-400 dark:hover:bg-red-950/40',
+    'border-[1.5px] border-line-bold bg-surface text-leaf-800 font-semibold hover:border-leaf-800 focus-visible:ring-leaf-600/25',
+  ghost: 'text-ink-soft font-semibold hover:bg-sand hover:text-leaf-800 focus-visible:ring-leaf-600/25',
+  danger: 'text-danger font-semibold hover:bg-danger-50 focus-visible:ring-danger/25',
 };
 
 const SIZE_CLASS: Record<Size, string> = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2.5 text-sm',
+  sm: 'px-4 py-2 text-sm',
+  md: 'px-[22px] py-2.5 text-[15px]',
+  lg: 'px-7 py-3.5 text-base',
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -25,11 +32,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', loading, disabled, className = '', children, ...props }, ref) => (
+  ({ variant = 'primary', size = 'sm', loading, disabled, className = '', children, ...props }, ref) => (
     <button
       ref={ref}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition focus-visible:outline-none focus-visible:ring-4 disabled:cursor-not-allowed disabled:opacity-60 ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-full transition focus-visible:ring-4 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${className}`}
       {...props}
     >
       {loading && (
@@ -43,3 +50,34 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ),
 );
 Button.displayName = 'Button';
+
+/**
+ * Ação destrutiva escrita como texto, não como botão cheio: "Cancelar doação"
+ * fica ao lado de "Editar" sem disputar peso com ela.
+ */
+export const InlineDangerButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+  ({ className = '', children, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={`rounded-sm text-sm font-semibold text-danger transition hover:underline focus-visible:ring-4 focus-visible:ring-danger/25 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+  ),
+);
+InlineDangerButton.displayName = 'InlineDangerButton';
+
+/** Ação secundária em texto, no verde de link ("Conversar"). */
+export const InlineButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+  ({ className = '', children, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={`rounded-sm text-sm font-bold text-leaf-600 transition hover:underline focus-visible:ring-4 focus-visible:ring-leaf-600/25 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      {...props}
+    >
+      {children}
+    </button>
+  ),
+);
+InlineButton.displayName = 'InlineButton';

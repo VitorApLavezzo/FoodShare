@@ -41,7 +41,7 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
               type="button"
               tabIndex={-1}
               onClick={() => setVisible((v) => !v)}
-              className="rounded-md p-1.5 text-neutral-400 transition hover:text-neutral-600 dark:hover:text-neutral-200"
+              className="rounded-lg p-1.5 text-ink-faint transition hover:text-ink-muted"
               aria-label={visible ? 'Ocultar senha' : 'Mostrar senha'}
             >
               <EyeIcon open={visible} />
@@ -60,20 +60,15 @@ export function PasswordStrengthMeter({ password }: { password: string }) {
   const strength = getPasswordStrength(password);
   const checks = checkPassword(password);
 
-  const barColor =
-    strength === 'forte' ? 'bg-brand-500' : strength === 'média' ? 'bg-amber-500' : 'bg-red-500';
+  const barColor = strength === 'forte' ? 'bg-leaf-600' : strength === 'média' ? 'bg-sun-500' : 'bg-danger';
   const barWidth = strength === 'forte' ? 'w-full' : strength === 'média' ? 'w-2/3' : 'w-1/3';
   const labelColor =
-    strength === 'forte'
-      ? 'text-brand-600 dark:text-brand-400'
-      : strength === 'média'
-        ? 'text-amber-600 dark:text-amber-400'
-        : 'text-red-600 dark:text-red-400';
+    strength === 'forte' ? 'text-leaf-600' : strength === 'média' ? 'text-sun-800' : 'text-danger';
 
   return (
     <div className="mt-2">
       <div className="flex items-center gap-2">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-sand">
           <div className={`h-full rounded-full transition-all ${barColor} ${barWidth}`} />
         </div>
         <span className={`text-xs font-medium capitalize ${labelColor}`}>{strength}</span>
@@ -90,7 +85,7 @@ export function PasswordStrengthMeter({ password }: { password: string }) {
 
 function PasswordRequirement({ met, label }: { met: boolean; label: string }) {
   return (
-    <li className={`flex items-center gap-1 ${met ? 'text-brand-600 dark:text-brand-400' : 'text-neutral-400'}`}>
+    <li className={`flex items-center gap-1 ${met ? 'text-leaf-600' : 'text-ink-faint'}`}>
       <span>{met ? '✓' : '·'}</span>
       {label}
     </li>

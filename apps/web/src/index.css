@@ -1,39 +1,70 @@
-@import "tailwindcss";
-
-@custom-variant dark (&:where(.dark, .dark *));
+@import 'tailwindcss';
 
 @theme {
-  --color-brand-50: #f2fbf4;
-  --color-brand-100: #e0f7e4;
-  --color-brand-200: #bfedc9;
-  --color-brand-300: #8ddba0;
-  --color-brand-400: #57c274;
-  --color-brand-500: #2fa855;
-  --color-brand-600: #1f8a44;
-  --color-brand-700: #1a6d38;
-  --color-brand-800: #185730;
-  --color-brand-900: #14482a;
+  /* Sistema Compartilhaê — extraído das 10 telas do projeto de design.
+     Todos os valores abaixo saíram do próprio arquivo; nenhum foi inventado.
 
-  --color-accent-50: #fff8ed;
-  --color-accent-100: #ffefd3;
-  --color-accent-200: #ffdba5;
-  --color-accent-300: #ffc06d;
-  --color-accent-400: #ff9f33;
-  --color-accent-500: #f9800f;
-  --color-accent-600: #ea6206;
-  --color-accent-700: #c24807;
-  --color-accent-800: #9a380e;
-  --color-accent-900: #7c300f;
+     A lógica: creme quente como papel, verde profundo como voz da marca e
+     laranja reservado à comida disponível. O laranja nunca decora — quando
+     aparece, é porque há algo para pegar. */
 
-  --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Fraunces', 'Inter', system-ui, serif;
+  /* Superfícies */
+  --color-canvas: #fcf9f0;
+  --color-surface: #ffffff;
+  --color-sand-soft: #f6f0e0;
+  --color-sand: #f1ebda;
+  --color-sand-muted: #f5f1e6;
+  --color-sand-deep: #efe9d8;
+  --color-stone-100: #eeeae0;
+
+  /* Tinta, do mais escuro ao placeholder */
+  --color-ink: #1f2a22;
+  --color-ink-body: #33403a;
+  --color-ink-soft: #4a564d;
+  --color-ink-muted: #6b756d;
+  --color-ink-dim: #8a938c;
+  --color-ink-faint: #9aa39c;
+
+  /* Verde: 900 é só a sombra sólida dos botões */
+  --color-leaf-50: #eef6ef;
+  --color-leaf-100: #e3f1e5;
+  --color-leaf-200: #cfe3d3;
+  --color-leaf-400: #5fa86b;
+  --color-leaf-600: #237231;
+  --color-leaf-800: #16522e;
+  --color-leaf-900: #0d3a20;
+
+  /* `sun` e não `amber`: o Tailwind já traz amber e sobrescrevê-la mudaria
+     cor fora deste redesign. */
+  --color-sun-50: #fff4e2;
+  --color-sun-100: #ffefd6;
+  --color-sun-200: #ffe2b8;
+  --color-sun-300: #f2d3a6;
+  --color-sun-400: #f59a26;
+  --color-sun-500: #f28b0a;
+  --color-sun-600: #c96f02;
+  --color-sun-700: #9a4a00;
+  --color-sun-800: #8a4a05;
+  --color-sun-900: #5c3a0a;
+
+  /* Azul acinzentado: estado encerrado/concluído, que não é alerta nem convite */
+  --color-dusk-100: #e6eef6;
+  --color-dusk-800: #244a6b;
+
+  --color-danger: #b42318;
+  --color-danger-50: #fdecea;
+
+  /* Linhas, em três pesos: cartão, campo e botão */
+  --color-line: #ede4cc;
+  --color-line-strong: #e2dac4;
+  --color-line-bold: #d9d0b8;
+
+  --font-sans: 'Figtree', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Fredoka', 'Figtree', system-ui, sans-serif;
 }
 
 :root {
   color-scheme: light;
-}
-:root.dark {
-  color-scheme: dark;
 }
 
 html,
@@ -43,23 +74,28 @@ body,
 }
 
 body {
-  @apply bg-neutral-50 text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
-  font-feature-settings: 'cv11', 'ss01';
+  @apply bg-canvas text-ink antialiased;
 }
 
 ::selection {
-  @apply bg-brand-200 text-brand-900;
+  @apply bg-sun-200 text-leaf-800;
+}
+
+::placeholder {
+  color: var(--color-ink-faint);
+}
+
+/* O popup do Leaflet vem com a tipografia e o canto do próprio plugin —
+   sem isto ele é a única coisa na tela que não é do sistema. */
+.leaflet-popup-content-wrapper {
+  border-radius: 16px;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+}
+.leaflet-container {
+  font-family: var(--font-sans);
 }
 
 .font-display {
   font-family: var(--font-display);
-}
-
-/* Fundo texturizado sutil para telas de entrada (login/registro/home) */
-.bg-grain {
-  background-image: radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.05) 1px, transparent 0);
-  background-size: 22px 22px;
-}
-:root.dark .bg-grain {
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0);
 }

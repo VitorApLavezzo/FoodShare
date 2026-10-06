@@ -10,24 +10,22 @@ interface HealthResponse {
   checks?: { database: boolean; redis: boolean };
 }
 
+// Numeração legítima: são três passos em ordem, não três itens quaisquer.
 const STEPS = [
   {
-    step: '01',
-    title: 'Estabelecimento publica',
-    desc: 'Restaurantes e mercados cadastram o excedente do dia em segundos — quantidade, categoria e prazo de retirada.',
-    icon: '🍽️',
+    step: '1',
+    title: 'O estabelecimento publica',
+    desc: 'Sobrou no fim do dia? Cadastre quantidade, categoria e prazo de retirada em poucos segundos.',
   },
   {
-    step: '02',
-    title: 'ONG reserva com prioridade',
-    desc: 'A instituição mais próxima reserva o alimento antes que ele vença. Sem disputa: o sistema garante que só uma reserva vale.',
-    icon: '📋',
+    step: '2',
+    title: 'A ONG reserva',
+    desc: 'A instituição mais perto garante o alimento antes que ele vença. Uma reserva por doação, sem disputa.',
   },
   {
-    step: '03',
-    title: 'Retirada rastreada',
-    desc: 'Um código confirma a retirada presencial. Todo o trajeto fica registrado, do prato até quem recebeu.',
-    icon: '✅',
+    step: '3',
+    title: 'Retirada com código',
+    desc: 'Na hora de buscar, um código confirma a entrega. Fica tudo registrado, do prato até quem recebeu.',
   },
 ];
 
@@ -49,18 +47,11 @@ export function HomePage() {
   }, []);
 
   return (
-    <div className="relative overflow-hidden">
-      <div
-        className="pointer-events-none absolute -top-40 right-[-10%] h-[36rem] w-[36rem] rounded-full bg-brand-200/50 blur-3xl dark:bg-brand-900/20"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute top-32 left-[-15%] h-[28rem] w-[28rem] rounded-full bg-accent-200/40 blur-3xl dark:bg-accent-900/10"
-        aria-hidden
-      />
-
-      <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-        <Logo />
+    <div className="min-h-screen bg-canvas">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-5">
+        <Link to="/">
+          <Logo className="text-2xl" />
+        </Link>
         <nav className="flex items-center gap-2">
           <Link to="/login">
             <Button variant="ghost" size="sm">
@@ -73,81 +64,90 @@ export function HomePage() {
         </nav>
       </header>
 
-      <main className="relative z-10 mx-auto flex max-w-4xl flex-col items-center gap-8 px-6 pb-20 pt-12 text-center">
-        <span className="rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5 text-sm font-medium text-brand-700 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-300">
-          🌱 Sustentabilidade · Alimentação · Impacto social
-        </span>
+      <main className="mx-auto grid max-w-6xl items-center gap-12 px-6 pt-12 pb-22 lg:grid-cols-2">
+        <div className="flex flex-col items-start gap-6">
+          <span className="rounded-full bg-sun-100 px-4 py-1.5 text-sm font-semibold text-sun-800">
+            Sustentabilidade · Alimentação · Impacto social
+          </span>
 
-        <h1 className="font-display max-w-3xl text-5xl font-medium leading-[1.1] tracking-tight text-neutral-900 sm:text-6xl dark:text-white">
-          Comida que sobra <span className="text-brand-600 dark:text-brand-400">não devia virar lixo</span>
-        </h1>
+          <h1 className="font-display text-[clamp(2.75rem,6vw,4.25rem)] leading-[1.02] font-semibold tracking-[-0.01em] text-balance text-leaf-800">
+            Sobrou comida boa? <span className="text-sun-500">Compartilhaê.</span>
+          </h1>
 
-        <p className="max-w-xl text-lg leading-relaxed text-neutral-600 dark:text-neutral-400">
-          O FoodShare conecta restaurantes e mercados com excedentes alimentares a
-          ONGs que distribuem para quem precisa — com reserva sem conflito e
-          rastreabilidade de ponta a ponta.
-        </p>
+          <p className="max-w-[520px] text-[19px] leading-relaxed text-pretty text-ink-soft">
+            A gente conecta restaurantes e mercados que têm excedente com ONGs que levam o alimento até quem
+            precisa. Reserva sem confusão e retirada acompanhada do começo ao fim.
+          </p>
 
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link to="/register">
-            <Button size="md" className="px-6 py-3 text-base">
-              Começar agora
-            </Button>
-          </Link>
-          <Link to="/login">
-            <Button variant="secondary" size="md" className="px-6 py-3 text-base">
-              Já tenho conta
-            </Button>
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link to="/register">
+              <Button size="lg">Quero participar</Button>
+            </Link>
+            <Link to="/login">
+              <Button variant="secondary" size="lg">
+                Já tenho conta
+              </Button>
+            </Link>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-9">
+            {STATS.map((s) => (
+              <div key={s.label}>
+                <p className="font-display text-[28px] leading-none font-semibold text-leaf-800">{s.value}</p>
+                <p className="mt-1 text-[13px] text-ink-muted">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="mt-4 flex items-center gap-8">
-          {STATS.map((s) => (
-            <div key={s.label} className="text-center">
-              <p className="font-display text-2xl font-semibold text-neutral-900 dark:text-white">{s.value}</p>
-              <p className="text-xs text-neutral-500">{s.label}</p>
-            </div>
-          ))}
+        {/* Anéis concêntricos em sombra sólida: o mark parece pousado no papel,
+            sem nenhuma imagem de fundo. */}
+        <div className="flex justify-center">
+          <div className="flex aspect-square w-[min(100%,460px)] items-center justify-center rounded-full bg-canvas shadow-[0_0_0_18px_var(--color-sand-soft),0_0_0_36px_var(--color-canvas),0_0_0_37px_var(--color-line)]">
+            <LogoMark className="h-[62%] w-[62%]" />
+          </div>
         </div>
       </main>
 
-      <section className="relative z-10 mx-auto max-w-6xl px-6 pb-24">
-        <div className="mb-10 text-center">
-          <h2 className="font-display text-3xl font-medium text-neutral-900 dark:text-white">Como funciona</h2>
-          <p className="mt-2 text-neutral-500">Três passos, do prato ao prato.</p>
-        </div>
-        <div className="grid gap-6 sm:grid-cols-3">
-          {STEPS.map((s) => (
-            <div
-              key={s.step}
-              className="group relative overflow-hidden rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
-            >
-              <span className="font-display text-4xl text-neutral-100 transition group-hover:text-brand-100 dark:text-neutral-800 dark:group-hover:text-brand-900/60">
-                {s.step}
-              </span>
-              <span className="absolute right-6 top-6 text-2xl">{s.icon}</span>
-              <h3 className="mt-3 text-lg font-semibold text-neutral-900 dark:text-white">{s.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-neutral-500">{s.desc}</p>
-            </div>
-          ))}
+      <section className="bg-leaf-800 px-6 py-20 text-canvas">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-10 flex flex-col gap-2">
+            <h2 className="font-display text-[40px] leading-tight font-semibold">Como funciona</h2>
+            <p className="text-[17px] text-leaf-200">Três passos, do prato ao prato.</p>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {STEPS.map((s) => (
+              <div
+                key={s.step}
+                className="flex flex-col gap-3 rounded-[28px] bg-canvas p-7 transition motion-safe:hover:-translate-y-1"
+              >
+                <span className="font-display flex h-13 w-13 items-center justify-center rounded-full bg-sun-500 text-[22px] font-bold text-leaf-800">
+                  {s.step}
+                </span>
+                <h3 className="font-display mt-1.5 text-[22px] font-semibold text-leaf-800">{s.title}</h3>
+                <p className="text-[15px] leading-relaxed text-pretty text-ink-soft">{s.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      <footer className="relative z-10 border-t border-neutral-200 px-6 py-8 dark:border-neutral-800">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
-          <span className="inline-flex items-center gap-2 text-sm text-neutral-500">
-            <LogoMark className="h-5 w-5" />
-            FoodShare · plataforma distribuída de compartilhamento de alimentos
+      <footer className="border-t border-line px-6 py-7">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
+          <span className="flex items-center gap-2.5 text-sm text-ink-muted">
+            <LogoMark className="h-7 w-7" />
+            Compartilhaê · comida boa circulando de mão em mão
           </span>
           <span
-            className={`inline-flex items-center gap-1.5 text-xs ${
-              error ? 'text-red-500' : health ? 'text-brand-600 dark:text-brand-400' : 'text-neutral-400'
+            className={`flex items-center gap-2 text-[13px] font-medium ${
+              error ? 'text-danger' : health ? 'text-leaf-600' : 'text-ink-faint'
             }`}
           >
             <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                error ? 'bg-red-500' : health ? 'bg-brand-500' : 'bg-neutral-300 animate-pulse'
+              className={`h-[7px] w-[7px] rounded-full ${
+                error ? 'bg-danger' : health ? 'bg-leaf-600' : 'animate-pulse bg-line-bold'
               }`}
+              aria-hidden
             />
             {error ? 'API indisponível' : health ? `sistema operante · nó ${health.nodeId}` : 'verificando…'}
           </span>

@@ -1,4 +1,12 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApprovalStatus, OrganizationKind } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
@@ -6,15 +14,20 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 type ManualApprovalStatus = Exclude<ApprovalStatus, 'PENDING'>;
 
 @Injectable()
 export class OrganizationsService {
+  private readonly logger = new Logger(OrganizationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly syncService: SyncService,
+    @Inject(forwardRef(() => RealtimeGateway))
+    private readonly realtimeGateway: RealtimeGateway,
   ) {}
 
   async create(user: AuthenticatedUser, kind: OrganizationKind, dto: CreateOrganizationDto) {
@@ -57,6 +70,14 @@ export class OrganizationsService {
       newData: organization,
     });
     await this.syncService.publishEvent('ORGANIZATION_APPROVED', organization.id, organization);
+
+    // O socket já está aberto desde o login, sem esta organização: sem recolocá-lo
+    // na sala agora, o chat desta pessoa só funcionaria depois de um F5.
+    try {
+      await this.realtimeGateway.refreshOrganizationRooms(user.id);
+    } catch (err) {
+      this.logger.warn(`Falha ao atualizar as salas de ${user.id}: ${(err as Error).message}`);
+    }
 
     return organization;
   }

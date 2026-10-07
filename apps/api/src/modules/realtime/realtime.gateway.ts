@@ -68,20 +68,56 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         secret: this.config.get<string>('jwt.secret'),
       });
 
-      await client.join(`user:${payload.sub}`);
-
-      const orgLinks = await this.prisma.organizationUser.findMany({
-        where: { userId: payload.sub },
-        select: { organizationId: true },
-      });
-      for (const link of orgLinks) {
-        await client.join(`org:${link.organizationId}`);
-      }
-
+      // Antes de qualquer await: o socket.io já entrega eventos enquanto este
+      // handler está pendente, e o cliente dispara `conversation:open` assim
+      // que conecta. Gravando o userId depois dos awaits, esse evento chegava
+      // com o socket ainda anônimo, era recusado, e a conversa nunca entrava
+      // na sala — então o aviso de mensagem nova não era suprimido.
       (client.data as SocketData).userId = payload.sub;
+
+      await client.join(`user:${payload.sub}`);
+      await this.joinOwnOrganizationRooms(client, payload.sub);
     } catch {
       this.logger.warn(`Conexão WS rejeitada (token inválido): ${client.id}`);
       client.disconnect();
+    }
+  }
+
+  /**
+   * Coloca o socket nas salas das organizações DO PRÓPRIO usuário.
+   *
+   * Nunca nas salas da outra parte de uma conversa: a sala `org:` recebe as
+   * mensagens de todas as conversas daquela organização, então entrar na sala
+   * alheia vazaria negociação com terceiros.
+   */
+  private async joinOwnOrganizationRooms(client: Socket, userId: string) {
+    const links = await this.prisma.organizationUser.findMany({
+      where: { userId },
+      select: { organizationId: true },
+    });
+    for (const link of links) {
+      await client.join(`org:${link.organizationId}`);
+    }
+  }
+
+  /**
+   * Reentra os sockets já abertos de um usuário nas salas dele.
+   *
+   * `handleConnection` só consegue fazer isso uma vez, com os vínculos que
+   * existiam naquele instante. No primeiro acesso a ordem real é outra — a
+   * pessoa loga (socket conecta) e só então cadastra a organização —, e sem
+   * isto o socket ficava fora da sala até recarregar a página: a notificação
+   * chegava (sala `user:`) e a mensagem no chat aberto, não.
+   */
+  async refreshOrganizationRooms(userId: string) {
+    const [sockets, links] = await Promise.all([
+      this.server.in(`user:${userId}`).fetchSockets(),
+      this.prisma.organizationUser.findMany({ where: { userId }, select: { organizationId: true } }),
+    ]);
+    for (const socket of sockets) {
+      for (const link of links) {
+        socket.join(`org:${link.organizationId}`);
+      }
     }
   }
 
@@ -129,6 +165,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     try {
       await this.chatService.assertCanViewConversation(userId, body.conversationId);
       await client.join(`conv:${body.conversationId}`);
+      await this.joinOwnOrganizationRooms(client, userId);
       return { ok: true };
     } catch {
       return { ok: false, code: 'FORBIDDEN_CONVERSATION_ACCESS' };

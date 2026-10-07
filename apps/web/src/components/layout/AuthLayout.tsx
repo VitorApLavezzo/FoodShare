@@ -26,11 +26,11 @@ export function AuthLayout({
     <div className="grid min-h-screen lg:grid-cols-2">
       <div className="hidden flex-col justify-between gap-10 border-r border-line bg-canvas p-10 lg:flex">
         <Link to="/" className="self-start">
-          <Logo className="text-2xl" />
+          <Logo className="h-[34px] w-auto" />
         </Link>
 
         <div className="flex max-w-md flex-col gap-7">
-          <LogoMark className="h-32 w-32" />
+          <LogoMark className="h-auto w-48" />
           <p className="font-display text-[2.125rem] leading-[1.15] font-semibold text-balance text-leaf-800">
             Comida boa não é pra virar lixo enquanto alguém passa fome.
           </p>
@@ -50,7 +50,7 @@ export function AuthLayout({
       <div className="flex flex-col justify-center bg-surface px-6 py-12 sm:px-12 lg:px-16">
         <div className="mx-auto w-full max-w-[380px]">
           <div className="mb-8 lg:hidden">
-            <Logo />
+            <Logo className="h-7 w-auto" />
           </div>
 
           <h1 className="font-display text-[2.125rem] leading-tight font-semibold text-leaf-800">{title}</h1>

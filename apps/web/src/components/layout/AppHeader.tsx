@@ -45,7 +45,7 @@ export function AppHeader() {
       <div className="mx-auto flex h-[68px] max-w-6xl items-center justify-between gap-4 px-6">
         <div className="flex items-center gap-6">
           <Link to="/dashboard" className="flex items-center">
-            <Logo />
+            <Logo className="h-7 w-auto" />
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
             <NavLink to="/dashboard" label="Painel" />

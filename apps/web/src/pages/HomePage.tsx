@@ -50,7 +50,7 @@ export function HomePage() {
     <div className="min-h-screen bg-canvas">
       <header className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-5">
         <Link to="/">
-          <Logo className="text-2xl" />
+          <Logo className="h-[34px] w-auto" />
         </Link>
         <nav className="flex items-center gap-2">
           <Link to="/login">
@@ -104,7 +104,7 @@ export function HomePage() {
             sem nenhuma imagem de fundo. */}
         <div className="flex justify-center">
           <div className="flex aspect-square w-[min(100%,460px)] items-center justify-center rounded-full bg-canvas shadow-[0_0_0_18px_var(--color-sand-soft),0_0_0_36px_var(--color-canvas),0_0_0_37px_var(--color-line)]">
-            <LogoMark className="h-[62%] w-[62%]" />
+            <LogoMark className="h-auto w-[72%]" />
           </div>
         </div>
       </main>
@@ -135,7 +135,7 @@ export function HomePage() {
       <footer className="border-t border-line px-6 py-7">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
           <span className="flex items-center gap-2.5 text-sm text-ink-muted">
-            <LogoMark className="h-7 w-7" />
+            <LogoMark className="h-7 w-auto" />
             Compartilhaê · comida boa circulando de mão em mão
           </span>
           <span

@@ -48,6 +48,8 @@ import { AdminModule } from './modules/admin/admin.module';
             ? undefined
             : { target: 'pino-pretty', options: { singleLine: true, translateTime: 'HH:MM:ss' } },
         autoLogging: { ignore: (req) => req.url === '/health' || req.url === '/ready' },
+        // Não grava tokens nem cookies no log.
+        redact: ['req.headers.authorization', 'req.headers.cookie'],
       },
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),

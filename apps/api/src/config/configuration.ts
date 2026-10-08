@@ -43,5 +43,6 @@ export default () => ({
   cnpjApi: {
     url: process.env.CNPJ_API_URL ?? 'https://brasilapi.com.br/api/cnpj/v1',
     cacheTtlSeconds: parseInt(process.env.CNPJ_CACHE_TTL_SECONDS ?? '86400', 10),
+    timeoutMs: parseInt(process.env.CNPJ_TIMEOUT_MS ?? '8000', 10),
   },
 });

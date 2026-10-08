@@ -44,6 +44,17 @@ describe('CnpjService', () => {
     await expect(service.lookup('11222333000181')).resolves.toEqual({ found: false });
   });
 
+  it('tenta o próximo provedor quando o primeiro falha', async () => {
+    const httpGet = jest
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('Request failed with status code 500')))
+      .mockReturnValueOnce(of(apiResponse));
+    const { service } = buildService(httpGet);
+    await expect(service.lookup('11222333000181')).resolves.toMatchObject({ found: true });
+    expect(httpGet).toHaveBeenCalledTimes(2);
+    expect(httpGet.mock.calls[1][0]).toContain('minhareceita.org');
+  });
+
   it('usa o cache e não chama a API de novo', async () => {
     const cached = JSON.stringify({ found: true, legalName: 'Do cache' });
     const httpGet = jest.fn();

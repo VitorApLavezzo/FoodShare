@@ -1,11 +1,18 @@
-import { useCallback, useRef, useState, type FocusEvent } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useRef,
+  useState,
+  type FocusEvent,
+} from 'react';
 import {
   DONATION_CATEGORY_LABEL,
   ORGANIZATION_TYPES,
   ORGANIZATION_TYPE_LABEL,
   type OrganizationType,
 } from '@foodshare/types';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -20,13 +27,25 @@ import { isValidCnpj, formatCnpj, fetchCnpjData } from '../lib/cnpj';
 import { InputField, SelectField, TextareaField } from './ui/Field';
 import { Button } from './ui/Button';
 
-const COORDINATE_REQUIRED = 'Não foi possível localizar este endereço no mapa — revise rua, número e cidade.';
+// Leaflet é pesado e só o formulário de endereço precisa dele aqui — carrega
+// sob demanda, como o MapPage.
+const LocationPicker = lazy(() =>
+  import('./LocationPicker').then((m) => ({ default: m.LocationPicker })),
+);
+
+const COORDINATE_REQUIRED =
+  'Não foi possível localizar este endereço no mapa — revise rua, número e cidade.';
 
 const schema = z.object({
   legalName: z.string().min(2, 'Informe a razão social.'),
   tradeName: z.string().min(2, 'Informe o nome fantasia.'),
-  document: z.string().min(1, 'Informe o CNPJ.').refine(isValidCnpj, 'CNPJ inválido.'),
-  type: z.enum(ORGANIZATION_TYPES as [OrganizationType, ...OrganizationType[]]).optional(),
+  document: z
+    .string()
+    .min(1, 'Informe o CNPJ.')
+    .refine(isValidCnpj, 'CNPJ inválido.'),
+  type: z
+    .enum(ORGANIZATION_TYPES as [OrganizationType, ...OrganizationType[]])
+    .optional(),
   phone: z.string().min(8, 'Informe um telefone válido.'),
   email: z.string().email('Informe um e-mail válido.'),
   responsibleName: z.string().min(2, 'Informe o responsável.'),
@@ -40,21 +59,31 @@ const schema = z.object({
   city: z.string().min(2, 'Informe a cidade.'),
   state: z.string().min(2, 'Informe o estado (UF).'),
   zipCode: z.string().min(5, 'Informe o CEP.'),
-  // Preenchidas pela geocodificação, nunca digitadas: a mensagem de tipo é o
-  // que o usuário vê quando o endereço não foi localizado.
-  latitude: z.coerce.number({ invalid_type_error: COORDINATE_REQUIRED }).min(-90).max(90),
-  longitude: z.coerce.number({ invalid_type_error: COORDINATE_REQUIRED }).min(-180).max(180),
+  // Preenchidas pela geocodificação ou pelo pino do mapa, nunca digitadas: a
+  // mensagem de tipo é o que o usuário vê quando o endereço não foi localizado.
+  latitude: z.coerce
+    .number({ invalid_type_error: COORDINATE_REQUIRED })
+    .min(-90)
+    .max(90),
+  longitude: z.coerce
+    .number({ invalid_type_error: COORDINATE_REQUIRED })
+    .min(-180)
+    .max(180),
 });
 
 type FormValues = z.infer<typeof schema>;
 
-type LocationStatus = 'idle' | 'locating' | 'precise' | 'approximate' | 'failed';
+type LocationStatus =
+  'idle' | 'locating' | 'precise' | 'approximate' | 'manual' | 'failed';
 
 const LOCATION_HINT: Record<LocationStatus, string | undefined> = {
   idle: 'Calculada automaticamente a partir do endereço.',
   locating: 'Localizando o endereço no mapa…',
-  precise: 'Localização encontrada a partir do endereço informado.',
-  approximate: 'Ponto aproximado do CEP — preencha o número para localizar com precisão.',
+  precise:
+    'Localização encontrada pelo endereço. Se o pino não estiver em cima do local, arraste-o.',
+  approximate:
+    'Ponto aproximado do CEP — preencha o número ou arraste o pino até o local.',
+  manual: 'Ponto ajustado por você no mapa.',
   failed: undefined,
 };
 
@@ -71,8 +100,12 @@ export function OrganizationForm({
 }) {
   const isEditing = !!organization;
   const [serverError, setServerError] = useState<string | null>(null);
-  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'not-found'>('idle');
-  const [locationStatus, setLocationStatus] = useState<LocationStatus>(isEditing ? 'precise' : 'idle');
+  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'not-found'>(
+    'idle',
+  );
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>(
+    isEditing ? 'precise' : 'idle',
+  );
   // Guarda o endereço já geocodificado: sair de cinco campos seguidos dispararia
   // cinco buscas iguais no Nominatim, que limita a uma por segundo.
   const lastGeocoded = useRef<string>('');
@@ -84,6 +117,7 @@ export function OrganizationForm({
     setFocus,
     getValues,
     clearErrors,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -91,7 +125,9 @@ export function OrganizationForm({
       ? {
           legalName: organization.legalName,
           tradeName: organization.tradeName,
-          document: organization.document ? formatCnpj(organization.document) : undefined,
+          document: organization.document
+            ? formatCnpj(organization.document)
+            : undefined,
           type: organization.type ?? undefined,
           phone: organization.phone,
           email: organization.email,
@@ -105,28 +141,45 @@ export function OrganizationForm({
           neighborhood: organization.address.neighborhood,
           city: organization.address.city,
           state: organization.address.state,
-          zipCode: organization.address.zipCode ? formatCep(organization.address.zipCode) : undefined,
+          zipCode: organization.address.zipCode
+            ? formatCep(organization.address.zipCode)
+            : undefined,
           latitude: organization.address.latitude,
           longitude: organization.address.longitude,
         }
       : undefined,
   });
 
+  const [latitude, longitude] = useWatch({
+    control,
+    name: ['latitude', 'longitude'],
+  });
+
   /**
-   * Converte o endereço digitado em latitude/longitude. É a única coisa que
-   * escreve nesses dois campos — por isso eles são somente leitura: o ponto que
-   * decide o raio de alerta e a posição no mapa tem de vir do endereço de
-   * verdade, não de um número que alguém colou à mão.
+   * Converte o endereço digitado em latitude/longitude. Junto com o pino do
+   * mapa, é a única coisa que escreve nesses dois campos — por isso eles são
+   * somente leitura: o ponto que decide o raio de alerta e a posição no mapa
+   * tem de vir do endereço ou de quem apontou o local, não de um número colado
+   * à mão.
    */
   const refreshCoordinates = useCallback(async () => {
     const { street, number, neighborhood, city, state, zipCode } = getValues();
     if (!street || !city || !state) return;
 
-    const signature = [street, number, neighborhood, city, state].join('|').toLowerCase();
+    const signature = [street, number, neighborhood, city, state]
+      .join('|')
+      .toLowerCase();
     if (signature === lastGeocoded.current) return;
 
     setLocationStatus('locating');
-    const coordinates = await geocodeAddress({ street, number, neighborhood, city, state, zipCode });
+    const coordinates = await geocodeAddress({
+      street,
+      number,
+      neighborhood,
+      city,
+      state,
+      zipCode,
+    });
 
     if (coordinates) {
       lastGeocoded.current = signature;
@@ -184,17 +237,22 @@ export function OrganizationForm({
       setValue('legalName', data.legalName, { shouldValidate: true });
     if (data.tradeName && !getValues('tradeName'))
       setValue('tradeName', data.tradeName, { shouldValidate: true });
-    if (data.phone && !getValues('phone')) setValue('phone', data.phone, { shouldValidate: true });
-    if (data.email && !getValues('email')) setValue('email', data.email, { shouldValidate: true });
+    if (data.phone && !getValues('phone'))
+      setValue('phone', data.phone, { shouldValidate: true });
+    if (data.email && !getValues('email'))
+      setValue('email', data.email, { shouldValidate: true });
     if (!data.address) return;
 
     const { street, number, neighborhood, city, state, zipCode } = data.address;
-    if (street && !getValues('street')) setValue('street', street, { shouldValidate: true });
+    if (street && !getValues('street'))
+      setValue('street', street, { shouldValidate: true });
     if (number && !getValues('number')) setValue('number', number);
     if (neighborhood && !getValues('neighborhood'))
       setValue('neighborhood', neighborhood, { shouldValidate: true });
-    if (city && !getValues('city')) setValue('city', city, { shouldValidate: true });
-    if (state && !getValues('state')) setValue('state', state, { shouldValidate: true });
+    if (city && !getValues('city'))
+      setValue('city', city, { shouldValidate: true });
+    if (state && !getValues('state'))
+      setValue('state', state, { shouldValidate: true });
     // A Receita devolve o CEP só com dígitos ("13480000"). Gravar assim deixava
     // o campo fora do formato esperado e a busca por CEP nunca era disparada,
     // então o resto do endereço ficava sem completar.
@@ -206,12 +264,20 @@ export function OrganizationForm({
       if (digitsOnly.length === 8) {
         const fromCep = await fetchAddressByCep(digitsOnly);
         if (fromCep) {
-          if (!getValues('street')) setValue('street', fromCep.street, { shouldValidate: true });
+          if (!getValues('street'))
+            setValue('street', fromCep.street, { shouldValidate: true });
           if (!getValues('neighborhood'))
-            setValue('neighborhood', fromCep.neighborhood, { shouldValidate: true });
-          if (!getValues('city')) setValue('city', fromCep.city, { shouldValidate: true });
-          if (!getValues('state')) setValue('state', fromCep.state, { shouldValidate: true });
-          if (fromCep.latitude !== undefined && fromCep.longitude !== undefined) {
+            setValue('neighborhood', fromCep.neighborhood, {
+              shouldValidate: true,
+            });
+          if (!getValues('city'))
+            setValue('city', fromCep.city, { shouldValidate: true });
+          if (!getValues('state'))
+            setValue('state', fromCep.state, { shouldValidate: true });
+          if (
+            fromCep.latitude !== undefined &&
+            fromCep.longitude !== undefined
+          ) {
             setValue('latitude', fromCep.latitude, { shouldValidate: true });
             setValue('longitude', fromCep.longitude, { shouldValidate: true });
             setLocationStatus('approximate');
@@ -223,15 +289,52 @@ export function OrganizationForm({
     await refreshCoordinates();
   };
 
+  const handlePinMove = useCallback(
+    (coordinates: { latitude: number; longitude: number }) => {
+      setValue('latitude', coordinates.latitude, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      setValue('longitude', coordinates.longitude, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      clearErrors(['latitude', 'longitude']);
+      setLocationStatus('manual');
+    },
+    [clearErrors, setValue],
+  );
+
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
-    const { street, number, neighborhood, city, state, zipCode, latitude, longitude, ...rest } = values;
+    const {
+      street,
+      number,
+      neighborhood,
+      city,
+      state,
+      zipCode,
+      latitude,
+      longitude,
+      ...rest
+    } = values;
     const input: CreateOrganizationInput = {
       ...rest,
       // Com vários checkboxes de mesmo nome, o react-hook-form devolve `false`
       // quando nenhum está marcado — a API espera sempre uma lista.
-      notificationCategories: Array.isArray(rest.notificationCategories) ? rest.notificationCategories : [],
-      address: { street, number, neighborhood, city, state, zipCode, latitude, longitude },
+      notificationCategories: Array.isArray(rest.notificationCategories)
+        ? rest.notificationCategories
+        : [],
+      address: {
+        street,
+        number,
+        neighborhood,
+        city,
+        state,
+        zipCode,
+        latitude,
+        longitude,
+      },
     };
     try {
       if (isEditing) {
@@ -242,12 +345,16 @@ export function OrganizationForm({
         onCreated?.(created);
       }
     } catch (error) {
-      setServerError(getApiErrorMessage(error, 'Não foi possível salvar o cadastro.'));
+      setServerError(
+        getApiErrorMessage(error, 'Não foi possível salvar o cadastro.'),
+      );
     }
   };
 
   /** Campo de endereço que, ao perder o foco, remarca o ponto no mapa. */
-  const addressField = (name: 'street' | 'number' | 'neighborhood' | 'city' | 'state') => {
+  const addressField = (
+    name: 'street' | 'number' | 'neighborhood' | 'city' | 'state',
+  ) => {
     const { onBlur, ...field } = register(name);
     return {
       ...field,
@@ -259,9 +366,14 @@ export function OrganizationForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      className="flex flex-col gap-4"
+      noValidate
+    >
       <p className="text-xs text-ink-muted">
-        Campos marcados com <span className="font-semibold text-danger">*</span> são obrigatórios.
+        Campos marcados com <span className="font-semibold text-danger">*</span>{' '}
+        são obrigatórios.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -332,14 +444,20 @@ export function OrganizationForm({
           />
 
           <fieldset className="rounded-[20px] border-[1.5px] border-line p-4">
-            <legend className="px-1.5 text-sm font-semibold text-ink-body">Categorias de interesse</legend>
+            <legend className="px-1.5 text-sm font-semibold text-ink-body">
+              Categorias de interesse
+            </legend>
             <p className="mb-3 text-xs text-ink-muted">
               Deixe tudo desmarcado para receber alerta de qualquer alimento.
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
               {Object.entries(DONATION_CATEGORY_LABEL).map(([value, label]) => (
                 <label key={value} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" value={value} {...register('notificationCategories')} />
+                  <input
+                    type="checkbox"
+                    value={value}
+                    {...register('notificationCategories')}
+                  />
                   {label}
                 </label>
               ))}
@@ -349,7 +467,12 @@ export function OrganizationForm({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <InputField required label="Telefone" error={errors.phone?.message} {...register('phone')} />
+        <InputField
+          required
+          label="Telefone"
+          error={errors.phone?.message}
+          {...register('phone')}
+        />
         <InputField
           required
           type="email"
@@ -366,10 +489,16 @@ export function OrganizationForm({
         {...register('responsibleName')}
       />
 
-      <TextareaField label="Descrição (opcional)" rows={2} {...register('description')} />
+      <TextareaField
+        label="Descrição (opcional)"
+        rows={2}
+        {...register('description')}
+      />
 
       <fieldset className="rounded-[20px] border-[1.5px] border-line p-4">
-        <legend className="px-1.5 text-sm font-semibold text-ink-body">Endereço</legend>
+        <legend className="px-1.5 text-sm font-semibold text-ink-body">
+          Endereço
+        </legend>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
@@ -412,7 +541,12 @@ export function OrganizationForm({
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <div className="sm:col-span-2">
-            <InputField required label="Rua" error={errors.street?.message} {...addressField('street')} />
+            <InputField
+              required
+              label="Rua"
+              error={errors.street?.message}
+              {...addressField('street')}
+            />
           </div>
           <InputField
             label="Número"
@@ -427,7 +561,12 @@ export function OrganizationForm({
             error={errors.neighborhood?.message}
             {...addressField('neighborhood')}
           />
-          <InputField required label="Cidade" error={errors.city?.message} {...addressField('city')} />
+          <InputField
+            required
+            label="Cidade"
+            error={errors.city?.message}
+            {...addressField('city')}
+          />
           <InputField
             required
             label="Estado (UF)"
@@ -435,6 +574,31 @@ export function OrganizationForm({
             error={errors.state?.message}
             {...addressField('state')}
           />
+        </div>
+
+        <div className="mt-4">
+          <p className="mb-1.5 text-sm font-semibold text-ink-body">
+            Localização no mapa
+          </p>
+          <p className="mb-2 text-xs text-ink-muted">
+            Arraste o pino ou clique no mapa para marcar a entrada exata. A
+            visão de satélite ajuda a achar o prédio.
+          </p>
+          <Suspense
+            fallback={
+              <div className="flex h-[320px] items-center justify-center rounded-2xl border-[1.5px] border-line bg-sand-deep text-sm text-ink-muted">
+                Carregando mapa…
+              </div>
+            }
+          >
+            <LocationPicker
+              latitude={latitude === undefined ? undefined : Number(latitude)}
+              longitude={
+                longitude === undefined ? undefined : Number(longitude)
+              }
+              onChange={handlePinMove}
+            />
+          </Suspense>
         </div>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -456,13 +620,20 @@ export function OrganizationForm({
             {...register('longitude')}
           />
         </div>
-        {(locationStatus === 'failed' || errors.latitude || errors.longitude) && (
-          <p className="mt-1.5 text-xs font-semibold text-sun-800">{COORDINATE_REQUIRED}</p>
+        {(locationStatus === 'failed' ||
+          errors.latitude ||
+          errors.longitude) && (
+          <p className="mt-1.5 text-xs font-semibold text-sun-800">
+            {COORDINATE_REQUIRED}
+          </p>
         )}
       </fieldset>
 
       {serverError && (
-        <p role="alert" className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
+        <p
+          role="alert"
+          className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger"
+        >
           {serverError}
         </p>
       )}

@@ -51,8 +51,8 @@ services:
       JWT_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       PORT: 3000
-      CORS_ORIGIN: http://${PUBLIC_HOST:?defina PUBLIC_HOST no .env}
-      WEB_APP_URL: http://${PUBLIC_HOST}
+      CORS_ORIGIN: http://${PUBLIC_HOST:?defina PUBLIC_HOST no .env}${WEB_PORT_SUFFIX:-}
+      WEB_APP_URL: http://${PUBLIC_HOST}${WEB_PORT_SUFFIX:-}
       UPLOADS_DIR: /repo/apps/api/uploads
       NODE_ID: ${NODE_ID:-LIMEIRA}
       NODE_NAME: ${NODE_NAME:-Node Limeira}
@@ -66,20 +66,20 @@ services:
     volumes:
       - uploads_data:/repo/apps/api/uploads
     ports:
-      - "3000:3000"
+      - "${API_PORT:-3000}:3000"
 
   web:
     build:
       context: .
       dockerfile: infrastructure/docker/web.prod.Dockerfile
       args:
-        VITE_API_URL: http://${PUBLIC_HOST}:3000
+        VITE_API_URL: http://${PUBLIC_HOST}:${API_PORT:-3000}
     container_name: foodshare-web
     restart: unless-stopped
     depends_on:
       - api
     ports:
-      - "80:80"
+      - "${WEB_PORT:-80}:80"
 
 volumes:
   postgres_data:

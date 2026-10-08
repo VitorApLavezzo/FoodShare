@@ -1,0 +1,87 @@
+# Produção (VPS). Uso:
+#   cp .env.production.example .env   # e preencha os valores
+#   docker compose -f docker-compose.prod.yml up -d --build
+name: foodshare
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: foodshare
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: foodshare
+    # Sem "ports": o banco só é acessível pela rede interna do Docker.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foodshare"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: foodshare-api
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    container_name: foodshare-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://foodshare:${POSTGRES_PASSWORD}@postgres:5432/foodshare?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?defina JWT_REFRESH_SECRET no .env}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      PORT: 3000
+      CORS_ORIGIN: http://${PUBLIC_HOST:?defina PUBLIC_HOST no .env}
+      WEB_APP_URL: http://${PUBLIC_HOST}
+      UPLOADS_DIR: /repo/apps/api/uploads
+      NODE_ID: ${NODE_ID:-LIMEIRA}
+      NODE_NAME: ${NODE_NAME:-Node Limeira}
+      NODE_CITY: ${NODE_CITY:-Limeira}
+      NODE_STATE: ${NODE_STATE:-SP}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-FoodShare <nao-responda@foodshare.local>}
+    volumes:
+      - uploads_data:/repo/apps/api/uploads
+    ports:
+      - "3000:3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.prod.Dockerfile
+      args:
+        VITE_API_URL: http://${PUBLIC_HOST}:3000
+    container_name: foodshare-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:

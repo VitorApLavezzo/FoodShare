@@ -15,6 +15,7 @@ import {
   resendVerification,
 } from '../lib/account';
 import { useMyOrganization } from '../lib/use-my-organization';
+import { forgetRememberedAccount } from '../lib/remembered-account';
 import { AppHeader } from '../components/layout/AppHeader';
 import { InputField } from '../components/ui/Field';
 import { PasswordField } from '../components/ui/PasswordField';
@@ -292,6 +293,8 @@ function PrivacySection() {
     setBusy(true);
     try {
       await deleteMyAccount();
+      // A conta não existe mais: o login não pode oferecer "Continuar como…".
+      forgetRememberedAccount();
       // Navega antes de sair: com a ordem inversa a rota protegida mandava
       // para o login por um instante antes do recarregamento para a home.
       navigate('/', { replace: true });

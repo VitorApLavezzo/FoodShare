@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api, onSessionExpired } from '../lib/api';
 import { tokenStorage } from '../lib/token-storage';
 import { disconnectSocket } from '../lib/socket';
+import { rememberAccount } from '../lib/remembered-account';
 import { useToast } from './ToastContext';
 
 export type UserRole = 'ADMIN' | 'DONOR' | 'NGO';
@@ -57,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data } = await api.get<AuthUser>('/users/me');
       setUser(data);
+      // Mantém o atalho do login atualizado (nome alterado na conta, por exemplo).
+      rememberAccount({ name: data.name, email: data.email, role: data.role });
     } catch {
       tokenStorage.clear();
       setUser(null);
@@ -88,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // de quem acabou de entrar.
       queryClient.clear();
       setUser(data.user);
+      rememberAccount({ name: data.user.name, email: data.user.email, role: data.user.role });
     },
     [queryClient],
   );

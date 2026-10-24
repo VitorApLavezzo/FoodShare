@@ -1,6 +1,7 @@
 # Produção (VPS). Uso:
 #   cp .env.production.example .env   # e preencha os valores
 #   docker compose -f docker-compose.prod.yml up -d --build
+# Para atualizar depois (git pull + rebuild):  ./deploy.sh
 name: foodshare
 
 services:

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchAdminDashboard } from '../../lib/dashboard';
+import { QueryState } from '../ui/QueryState';
 import { StatCard, FeatureStatCard } from './StatCard';
 import { MonthlyBars } from './MonthlyBars';
 import { RankBars } from './RankBars';
@@ -9,6 +10,13 @@ export function AdminMetrics() {
   const query = useQuery({ queryKey: ['dashboard', 'admin'], queryFn: fetchAdminDashboard });
 
   if (query.isLoading) return <p className="text-sm text-ink-muted">Carregando métricas…</p>;
+  if (query.isError) {
+    return (
+      <QueryState isLoading={false} isError error={query.error} onRetry={() => query.refetch()}>
+        {null}
+      </QueryState>
+    );
+  }
   if (!query.data) return null;
   const {
     totals,

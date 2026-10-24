@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { verifyEmail } from '../lib/account';
 import { getApiErrorMessage } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { AuthLayout } from '../components/layout/AuthLayout';
 
 export function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
+  const { user, reloadUser } = useAuth();
   const token = searchParams.get('token') ?? '';
   const [status, setStatus] = useState<'verificando' | 'ok' | 'erro'>('verificando');
   const [message, setMessage] = useState('');
@@ -26,11 +28,15 @@ export function VerifyEmailPage() {
       .then((response) => {
         setStatus('ok');
         setMessage(response.message);
+        // Atualiza a sessão aberta: sem isso a tela da conta continuava pedindo
+        // para confirmar um e-mail que acabou de ser confirmado.
+        void reloadUser();
       })
       .catch((error) => {
         setStatus('erro');
         setMessage(getApiErrorMessage(error, 'Não foi possível confirmar o e-mail.'));
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   return (
@@ -38,8 +44,9 @@ export function VerifyEmailPage() {
       title={status === 'ok' ? 'E-mail confirmado!' : 'Confirmação de e-mail'}
       subtitle="Com o e-mail confirmado, os alertas de doação chegam certinho pra você."
       footer={
-        <Link to="/login" className="font-bold text-sun-600 hover:underline">
-          Ir para o login
+        // Quem confirma pelo link costuma já estar logado no mesmo navegador.
+        <Link to={user ? '/dashboard' : '/login'} className="font-bold text-sun-600 hover:underline">
+          {user ? 'Ir para o painel' : 'Ir para o login'}
         </Link>
       }
     >

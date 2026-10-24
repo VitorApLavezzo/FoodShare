@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApprovalStatus, DonationCategory, DonationListStatus, OrganizationKind } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { haversineKm } from '../../common/geo';
@@ -16,7 +17,10 @@ interface DistanceParams {
 
 @Injectable()
 export class MapService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async findOrganizations(kind: OrganizationKind, params: DistanceParams) {
     const organizations = await this.prisma.organization.findMany({
@@ -73,6 +77,9 @@ export class MapService {
         })),
         pickupDeadline: list.pickupDeadline,
         expiresAt: list.expiresAt,
+        // Permite agrupar no mapa as listas do mesmo estabelecimento: elas têm
+        // a mesma coordenada e, soltas, ficavam empilhadas num ponto só.
+        donorId: list.donorOrganizationId,
         donorName: list.donorOrganization.tradeName,
         latitude: list.donorOrganization.address.latitude,
         longitude: list.donorOrganization.address.longitude,
@@ -81,6 +88,53 @@ export class MapService {
       })),
       params,
     );
+  }
+
+  /**
+   * Quantas ONGs recebem o alerta quando este doador publica — a mesma conta de
+   * `NotificationsService.notifyNearbyNgos` (raio da ONG, ou o padrão), sem o
+   * filtro de categoria, que depende de cada doação.
+   *
+   * O doador não vê o endereço das ONGs; vê só quantas são e em que cidade.
+   * É o suficiente para saber se a doação vai chegar a alguém.
+   */
+  async findDonorReach(userId: string) {
+    const defaultRadiusKm = this.config.get<number>('notifications.radiusKm') ?? 50;
+    const link = await this.prisma.organizationUser.findFirst({
+      where: { userId, organization: { kind: OrganizationKind.DONOR, deletedAt: null } },
+      include: { organization: { include: { address: true } } },
+    });
+    if (!link) return { defaultRadiusKm, totalNgos: 0, byCity: [] };
+
+    const origin = link.organization.address;
+    const ngos = await this.prisma.organization.findMany({
+      where: { kind: OrganizationKind.NGO, approvalStatus: ApprovalStatus.APPROVED, deletedAt: null },
+      include: { address: true },
+      take: MAX_CANDIDATES,
+    });
+
+    const byCity = new Map<string, { city: string; state: string; count: number }>();
+    for (const ngo of ngos) {
+      const distanceKm = haversineKm(
+        origin.latitude,
+        origin.longitude,
+        ngo.address.latitude,
+        ngo.address.longitude,
+      );
+      if (distanceKm > (ngo.notificationRadiusKm ?? defaultRadiusKm)) continue;
+
+      const key = `${ngo.address.city}|${ngo.address.state}`;
+      const entry = byCity.get(key) ?? { city: ngo.address.city, state: ngo.address.state, count: 0 };
+      entry.count += 1;
+      byCity.set(key, entry);
+    }
+
+    const cities = [...byCity.values()].sort((a, b) => b.count - a.count);
+    return {
+      defaultRadiusKm,
+      totalNgos: cities.reduce((sum, c) => sum + c.count, 0),
+      byCity: cities,
+    };
   }
 
   /**

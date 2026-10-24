@@ -1,19 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { updateDonation, type DonationList } from '../lib/donations';
+import { donationDateIssues, updateDonation, type DonationDates, type DonationList } from '../lib/donations';
 import { getApiErrorMessage } from '../lib/api';
+import { toLocalInputValue } from '../lib/format';
 import { useToast } from '../context/ToastContext';
 import { Button } from './ui/Button';
-
-const inputClass =
-  'w-full rounded-2xl border-[1.5px] border-line-strong bg-canvas px-3.5 py-3 text-[15px] text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none';
-const labelClass = 'mb-1.5 block text-sm font-semibold text-ink-body';
-
-function toLocalInputValue(iso: string) {
-  const date = new Date(iso);
-  const offset = date.getTimezoneOffset();
-  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
-}
+import { InputField } from './ui/Field';
 
 export function EditDonationListForm({
   donationList,
@@ -29,6 +21,7 @@ export function EditDonationListForm({
   const [expiresAt, setExpiresAt] = useState(toLocalInputValue(donationList.expiresAt));
   const [notes, setNotes] = useState(donationList.notes ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof DonationDates, string>>>({});
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -36,62 +29,68 @@ export function EditDonationListForm({
         availableAt: new Date(availableAt).toISOString(),
         pickupDeadline: new Date(pickupDeadline).toISOString(),
         expiresAt: new Date(expiresAt).toISOString(),
-        notes: notes || undefined,
+        // String vazia, e não `undefined`: com `undefined` a API mantinha o
+        // texto antigo e não havia como apagar uma observação.
+        notes: notes.trim(),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['donations'] });
+      queryClient.invalidateQueries({ queryKey: ['donation', donationList.id] });
       showToast('Doação atualizada.', 'success');
       onDone();
     },
     onError: (err) => setError(getApiErrorMessage(err, 'Não foi possível salvar as alterações.')),
   });
 
+  const submit = () => {
+    const issues = donationDateIssues({ availableAt, pickupDeadline, expiresAt });
+    setFieldErrors(Object.fromEntries(issues.map((issue) => [issue.field, issue.message])));
+    if (issues.length > 0) return;
+    setError(null);
+    mutation.mutate();
+  };
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        mutation.mutate();
+        submit();
       }}
       className="mt-3 flex flex-col gap-3 rounded-2xl border border-line bg-canvas p-4"
     >
       <p className="text-xs text-ink-muted">
-        Só é possível editar os itens ainda intactos: nome/quantidade dos alimentos não podem ser alterados
-        após a publicação.
+        Dá pra ajustar datas e observações. Os alimentos e as quantidades não mudam depois de publicados —
+        para isso, cancele e publique de novo.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
-        <div>
-          <label className={labelClass}>Disponível a partir de</label>
-          <input
-            type="datetime-local"
-            className={inputClass}
-            value={availableAt}
-            onChange={(e) => setAvailableAt(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>Prazo limite de retirada</label>
-          <input
-            type="datetime-local"
-            className={inputClass}
-            value={pickupDeadline}
-            onChange={(e) => setPickupDeadline(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>Validade</label>
-          <input
-            type="datetime-local"
-            className={inputClass}
-            value={expiresAt}
-            onChange={(e) => setExpiresAt(e.target.value)}
-          />
-        </div>
+        <InputField
+          type="datetime-local"
+          label="Disponível a partir de"
+          value={availableAt}
+          error={fieldErrors.availableAt}
+          onChange={(e) => setAvailableAt(e.target.value)}
+        />
+        <InputField
+          type="datetime-local"
+          label="Prazo limite de retirada"
+          value={pickupDeadline}
+          error={fieldErrors.pickupDeadline}
+          onChange={(e) => setPickupDeadline(e.target.value)}
+        />
+        <InputField
+          type="datetime-local"
+          label="Validade do alimento"
+          value={expiresAt}
+          error={fieldErrors.expiresAt}
+          onChange={(e) => setExpiresAt(e.target.value)}
+        />
       </div>
-      <div>
-        <label className={labelClass}>Observações</label>
-        <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </div>
-      {error && <p className="text-sm font-semibold text-danger">{error}</p>}
+      <InputField label="Observações" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      {error && (
+        <p role="alert" className="text-sm font-semibold text-danger">
+          {error}
+        </p>
+      )}
       <div className="flex gap-2">
         <Button type="submit" size="sm" loading={mutation.isPending}>
           Salvar alterações

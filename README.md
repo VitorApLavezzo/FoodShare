@@ -307,14 +307,16 @@ ONGs não podem reservar a mesma doação, mesmo disputando no mesmo milissegund
   em SQL geoespacial. Migrar para PostGIS/`ST_DWithin` se o volume de dados
   crescer a ponto de tornar essa varredura em memória cara (ver
   [map.service.ts](apps/api/src/modules/map/map.service.ts)).
-- **`/map/donors` e `/map/ngos` são de leitura ampla**: diferente de
-  `/donors` e `/ngos` (Fase 3, restritos ao dono/admin), os endpoints de
-  mapa expõem organizações **aprovadas** para qualquer usuário autenticado —
-  é assim que uma ONG descobre doadores e vice-versa. Só dados já públicos
-  por natureza (nome, tipo, localização) são retornados.
-- **Geolocalização é opt-in no frontend**: `navigator.geolocation` só é
-  chamado quando o usuário clica em "Usar minha localização"; sem isso, o
-  mapa mostra tudo sem cálculo de distância.
+- **Cada papel vê no mapa só o que usa**: a ONG vê as doações abertas e os
+  doadores (`/map/donations`, `/map/donors`); o doador não vê endereço de
+  ONG nem doação de outro estabelecimento — vê o alcance das próprias
+  doações (`/map/reach`: quantas ONGs recebem o alerta, agrupadas por
+  cidade); só a administração vê as ONGs (`/map/ngos`). Endereço de ONG não
+  é dado público da plataforma, nem para outras ONGs.
+- **O mapa abre no endereço do cadastro**: para doador e ONG, o centro do
+  mapa e todas as distâncias partem da organização. Não há geolocalização do
+  aparelho — duas referências (sede e "onde estou") faziam a distância mudar
+  sem a pessoa entender por quê.
 
 ## Decisões de arquitetura (Fase 9)
 

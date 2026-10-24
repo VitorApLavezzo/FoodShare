@@ -7,7 +7,7 @@ import { resetPassword } from '../lib/account';
 import { getApiErrorMessage } from '../lib/api';
 import { AuthLayout } from '../components/layout/AuthLayout';
 import { PasswordField } from '../components/ui/PasswordField';
-import { Button } from '../components/ui/Button';
+import { Button, ButtonLink } from '../components/ui/Button';
 
 // Mesma exigência do cadastro, validada já no cliente para o usuário não
 // descobrir a regra só depois de enviar.
@@ -36,8 +36,10 @@ export function ResetPasswordPage() {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  const password = watch('password') ?? '';
 
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
@@ -61,18 +63,36 @@ export function ResetPasswordPage() {
       }
     >
       {!token ? (
-        <p className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
-          Link inválido: falta o código de verificação. Solicite a recuperação novamente.
-        </p>
+        <div className="flex flex-col gap-4">
+          <p className="rounded-2xl bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
+            Link inválido: falta o código de verificação. Solicite a recuperação novamente.
+          </p>
+          <ButtonLink to="/esqueci-senha" size="lg" className="w-full">
+            Pedir um novo link
+          </ButtonLink>
+        </div>
       ) : done ? (
-        <p className="rounded-2xl bg-leaf-100 px-4 py-3.5 text-sm leading-relaxed text-leaf-800">
-          Senha redefinida! Redirecionando para o login…
-        </p>
+        <div className="flex flex-col gap-4">
+          <p className="rounded-2xl bg-leaf-100 px-4 py-3.5 text-sm leading-relaxed text-leaf-800">
+            Senha redefinida! Redirecionando para o login…
+          </p>
+          <ButtonLink to="/login" size="lg" className="w-full">
+            Entrar agora
+          </ButtonLink>
+        </div>
       ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
-          <PasswordField label="Nova senha" error={errors.password?.message} {...register('password')} />
+          <PasswordField
+            label="Nova senha"
+            autoComplete="new-password"
+            showStrength
+            value={password}
+            error={errors.password?.message}
+            {...register('password')}
+          />
           <PasswordField
             label="Confirme a nova senha"
+            autoComplete="new-password"
             error={errors.confirmPassword?.message}
             {...register('confirmPassword')}
           />

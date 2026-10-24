@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { Logo, LogoMark } from '../components/layout/Logo';
-import { Button } from '../components/ui/Button';
+import { ButtonLink } from '../components/ui/Button';
 
 interface HealthResponse {
   status: string;
@@ -36,6 +37,7 @@ const STATS = [
 ];
 
 export function HomePage() {
+  const { user } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,15 +54,19 @@ export function HomePage() {
         <Link to="/">
           <Logo className="h-[34px] w-auto" />
         </Link>
+        {/* Quem já tem sessão aberta não precisa de "Entrar" e "Cadastrar" —
+            precisa de um caminho de volta para o painel. */}
         <nav className="flex items-center gap-2">
-          <Link to="/login">
-            <Button variant="ghost" size="sm">
-              Entrar
-            </Button>
-          </Link>
-          <Link to="/register">
-            <Button size="sm">Cadastrar</Button>
-          </Link>
+          {user ? (
+            <ButtonLink to="/dashboard">Ir para o painel</ButtonLink>
+          ) : (
+            <>
+              <ButtonLink to="/login" variant="ghost">
+                Entrar
+              </ButtonLink>
+              <ButtonLink to="/register">Cadastrar</ButtonLink>
+            </>
+          )}
         </nav>
       </header>
 
@@ -80,14 +86,20 @@ export function HomePage() {
           </p>
 
           <div className="flex flex-wrap gap-3">
-            <Link to="/register">
-              <Button size="lg">Quero participar</Button>
-            </Link>
-            <Link to="/login">
-              <Button variant="secondary" size="lg">
-                Já tenho conta
-              </Button>
-            </Link>
+            {user ? (
+              <ButtonLink to="/dashboard" size="lg">
+                Continuar no painel
+              </ButtonLink>
+            ) : (
+              <>
+                <ButtonLink to="/register" size="lg">
+                  Quero participar
+                </ButtonLink>
+                <ButtonLink to="/login" variant="secondary" size="lg">
+                  Já tenho conta
+                </ButtonLink>
+              </>
+            )}
           </div>
 
           <div className="mt-3 flex flex-wrap gap-9">

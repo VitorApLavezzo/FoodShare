@@ -1,8 +1,11 @@
-import { lazy, Suspense, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { APPROVAL_STATUS_LABEL as APPROVAL_LABEL } from '@foodshare/types';
 import { useAuth } from '../context/AuthContext';
-import { fetchMyOrganization, type Organization } from '../lib/organizations';
+import { useToast } from '../context/ToastContext';
+import { type Organization } from '../lib/organizations';
+import { useMyOrganization } from '../lib/use-my-organization';
 import { OrganizationForm } from '../components/OrganizationForm';
 import { DonationForm } from '../components/DonationForm';
 import { DonationsList } from '../components/DonationsList';
@@ -22,8 +25,9 @@ const AdminMetrics = lazy(() =>
 import { AuditLogList } from '../components/dashboard/AuditLogList';
 import { NodesSyncPanel } from '../components/dashboard/NodesSyncPanel';
 import { AppHeader } from '../components/layout/AppHeader';
-import { Button } from '../components/ui/Button';
+import { Button, ButtonLink } from '../components/ui/Button';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
+import { QueryState } from '../components/ui/QueryState';
 
 const APPROVAL_TONE: Record<Organization['approvalStatus'], BadgeTone> = {
   PENDING: 'sun',
@@ -40,21 +44,45 @@ const GREETING: Record<string, string> = {
   ADMIN: 'Como anda a rede hoje?',
 };
 
+/**
+ * Sem aprovação, as ações do painel somem — e antes a tela não dizia por quê:
+ * o cartão mostrava só a etiqueta "Reprovado" e nenhum próximo passo.
+ */
+function approvalNotice(status: Organization['approvalStatus'], kind: 'DONOR' | 'NGO') {
+  const action = kind === 'NGO' ? 'reservar doações' : 'publicar doações';
+  switch (status) {
+    case 'PENDING':
+      return `Seu cadastro está em análise. Assim que for aprovado, você já pode ${action}.`;
+    case 'REJECTED':
+      return `Seu cadastro não foi aprovado, então ainda não dá pra ${action}. Revise os dados em "Editar dados" ou fale com a administração.`;
+    case 'BLOCKED':
+      return `Sua organização está bloqueada e não pode ${action} no momento. Fale com a administração da plataforma.`;
+    default:
+      return null;
+  }
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const kind = user?.role === 'NGO' ? 'NGO' : 'DONOR';
+  const location = useLocation();
   const [showDonationForm, setShowDonationForm] = useState(false);
+  const organizationQuery = useMyOrganization();
+  const { kind } = organizationQuery;
 
-  const organizationQuery = useQuery({
-    queryKey: ['my-organization', kind],
-    queryFn: () => fetchMyOrganization(kind),
-    enabled: user?.role === 'DONOR' || user?.role === 'NGO',
-  });
+  // O React Router não rola até a âncora sozinho, e as seções só existem depois
+  // que o cadastro carrega — "Ver minhas reservas" caía no topo da página.
+  useEffect(() => {
+    if (!location.hash || !organizationQuery.isSuccess) return;
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [location.hash, organizationQuery.isSuccess]);
 
   if (!user) return null;
 
   const organization = organizationQuery.data;
+  const isApproved = organization?.approvalStatus === 'APPROVED';
+  const notice = organization ? approvalNotice(organization.approvalStatus, kind) : null;
 
   return (
     <div>
@@ -76,13 +104,26 @@ export function DashboardPage() {
 
         {(user.role === 'DONOR' || user.role === 'NGO') && (
           <>
-            {organization?.approvalStatus === 'APPROVED' && (
+            {isApproved && (
               <Suspense fallback={<p className="text-sm text-ink-muted">Carregando indicadores…</p>}>
                 {user.role === 'DONOR' ? <DonorMetrics /> : <NgoMetrics />}
               </Suspense>
             )}
 
             {organizationQuery.isLoading && <p className="text-sm text-ink-muted">Carregando cadastro…</p>}
+
+            {/* Antes uma falha aqui deixava o painel vazio, sem erro nem como
+                tentar de novo. */}
+            {organizationQuery.isError && (
+              <QueryState
+                isLoading={false}
+                isError
+                error={organizationQuery.error}
+                onRetry={() => organizationQuery.refetch()}
+              >
+                {null}
+              </QueryState>
+            )}
 
             {organization && (
               <section className="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-6">
@@ -93,9 +134,14 @@ export function DashboardPage() {
                     </h2>
                     <p className="mt-0.5 text-sm text-ink-muted">{organization.legalName}</p>
                   </div>
-                  <Badge tone={APPROVAL_TONE[organization.approvalStatus]}>
-                    {APPROVAL_LABEL[organization.approvalStatus]}
-                  </Badge>
+                  <div className="flex items-center gap-3">
+                    <Badge tone={APPROVAL_TONE[organization.approvalStatus]}>
+                      {APPROVAL_LABEL[organization.approvalStatus]}
+                    </Badge>
+                    <ButtonLink to="/account" variant="secondary">
+                      Editar dados
+                    </ButtonLink>
+                  </div>
                 </div>
                 <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div>
@@ -113,6 +159,14 @@ export function DashboardPage() {
                     </dd>
                   </div>
                 </dl>
+                {notice && (
+                  <p
+                    role="status"
+                    className="rounded-2xl bg-sun-50 px-4 py-3 text-sm leading-relaxed font-semibold text-sun-900"
+                  >
+                    {notice}
+                  </p>
+                )}
               </section>
             )}
 
@@ -122,63 +176,80 @@ export function DashboardPage() {
                   {kind === 'NGO' ? 'Cadastre sua ONG' : 'Cadastre seu estabelecimento'}
                 </h2>
                 <p className="mt-1 mb-6 text-sm text-ink-muted">
-                  Leva menos de um minuto — assim que salvar, já dá pra{' '}
-                  {kind === 'NGO' ? 'reservar doações' : 'publicar doações'}.
+                  Leva menos de um minuto. Assim que salvar, o resto do sistema é liberado — mapa, sua conta e{' '}
+                  {kind === 'NGO' ? 'as doações para reservar' : 'a publicação de doações'}.
                 </p>
                 <OrganizationForm
                   kind={kind}
-                  onCreated={() => queryClient.invalidateQueries({ queryKey: ['my-organization', kind] })}
+                  onCreated={(created) => {
+                    queryClient.invalidateQueries({ queryKey: ['my-organization', kind] });
+                    showToast(
+                      created.approvalStatus === 'APPROVED'
+                        ? `Cadastro concluído! Já dá pra ${kind === 'NGO' ? 'reservar' : 'publicar'} doações.`
+                        : 'Cadastro enviado! Avisamos assim que for aprovado.',
+                      'success',
+                    );
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                 />
               </section>
             )}
 
-            {user.role === 'DONOR' && organization?.approvalStatus === 'APPROVED' && (
-              <>
-                <section className="flex flex-col gap-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas doações</h2>
-                    <Button onClick={() => setShowDonationForm((prev) => !prev)}>
-                      {showDonationForm ? 'Fechar' : 'Nova doação'}
-                    </Button>
+            {user.role === 'DONOR' && isApproved && (
+              <section className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas doações</h2>
+                  <Button
+                    variant={showDonationForm ? 'secondary' : 'primary'}
+                    onClick={() => setShowDonationForm((prev) => !prev)}
+                    aria-expanded={showDonationForm}
+                  >
+                    {showDonationForm ? 'Fechar' : 'Nova doação'}
+                  </Button>
+                </div>
+
+                {showDonationForm && (
+                  <div className="rounded-3xl border border-line bg-surface p-6">
+                    <DonationForm
+                      onCancel={() => setShowDonationForm(false)}
+                      onCreated={() => {
+                        setShowDonationForm(false);
+                        queryClient.invalidateQueries({ queryKey: ['donations'] });
+                        showToast('Doação publicada! As ONGs por perto já foram avisadas.', 'success');
+                      }}
+                    />
                   </div>
+                )}
 
-                  {showDonationForm && (
-                    <div className="rounded-3xl border border-line bg-surface p-6">
-                      <DonationForm
-                        onCreated={() => {
-                          setShowDonationForm(false);
-                          queryClient.invalidateQueries({ queryKey: ['donations'] });
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  <DonationsList mode="own" />
-                </section>
-
-                <DonationTemplatesPanel />
-
-                <section className="flex flex-col gap-4">
-                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">Reservas recebidas</h2>
-                  <ReservationsList />
-                </section>
-              </>
+                <DonationsList mode="own" />
+              </section>
             )}
 
-            {user.role === 'NGO' && (
-              <>
-                <section className="flex flex-col gap-4">
-                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">
-                    Doações disponíveis
-                  </h2>
-                  <DonationsList mode="available" />
-                </section>
+            {/* Reservas antes das recorrências: é onde há alguém esperando
+                resposta, enquanto a recorrência é configuração de vez em quando. */}
+            {user.role === 'DONOR' && organization && (
+              <section id="reservas-recebidas" className="flex scroll-mt-24 flex-col gap-4">
+                <h2 className="font-display text-[22px] font-semibold text-leaf-800">Reservas recebidas</h2>
+                <ReservationsList />
+              </section>
+            )}
 
-                <section className="flex flex-col gap-4">
-                  <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas reservas</h2>
-                  <ReservationsList />
-                </section>
-              </>
+            {user.role === 'DONOR' && isApproved && <DonationTemplatesPanel />}
+
+            {/* A ONG sem cadastro aprovado via a lista com botões "Reservar" que
+                só falhavam no fim, depois de escolher os itens. */}
+            {user.role === 'NGO' && isApproved && (
+              <section className="flex flex-col gap-4">
+                <h2 className="font-display text-[22px] font-semibold text-leaf-800">Doações disponíveis</h2>
+                <DonationsList mode="available" />
+              </section>
+            )}
+
+            {user.role === 'NGO' && organization && (
+              <section id="minhas-reservas" className="flex scroll-mt-24 flex-col gap-4">
+                <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas reservas</h2>
+                <ReservationsList />
+              </section>
             )}
           </>
         )}

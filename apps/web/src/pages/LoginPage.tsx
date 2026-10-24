@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage } from '../lib/api';
+import { getPostLoginPath } from '../lib/redirect';
 import { AuthLayout } from '../components/layout/AuthLayout';
 import { InputField } from '../components/ui/Field';
 import { PasswordField } from '../components/ui/PasswordField';
@@ -18,8 +19,10 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo = getPostLoginPath(location.state);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -32,11 +35,14 @@ export function LoginPage() {
     setServerError(null);
     try {
       await login(values.email, values.password);
-      navigate('/dashboard');
+      navigate(redirectTo, { replace: true });
     } catch (error) {
       setServerError(getApiErrorMessage(error, 'Não foi possível entrar.'));
     }
   };
+
+  // Quem já está logado e cai aqui (favorito, botão voltar) segue direto.
+  if (user && !isSubmitting) return <Navigate to={redirectTo} replace />;
 
   return (
     <AuthLayout

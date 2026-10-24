@@ -7,7 +7,6 @@ import {
   type FocusEvent,
 } from 'react';
 import {
-  DONATION_CATEGORY_LABEL,
   ORGANIZATION_TYPES,
   ORGANIZATION_TYPE_LABEL,
   type OrganizationType,
@@ -50,9 +49,6 @@ const schema = z.object({
   email: z.string().email('Informe um e-mail válido.'),
   responsibleName: z.string().min(2, 'Informe o responsável.'),
   description: z.string().optional(),
-  estimatedCapacity: z.coerce.number().int().min(0).optional(),
-  notificationRadiusKm: z.coerce.number().int().min(1).optional(),
-  notificationCategories: z.array(z.string()).optional(),
   street: z.string().min(2, 'Informe a rua.'),
   number: z.string().optional(),
   neighborhood: z.string().min(2, 'Informe o bairro.'),
@@ -133,9 +129,6 @@ export function OrganizationForm({
           email: organization.email,
           responsibleName: organization.responsibleName,
           description: organization.description ?? undefined,
-          estimatedCapacity: organization.estimatedCapacity ?? undefined,
-          notificationRadiusKm: organization.notificationRadiusKm ?? undefined,
-          notificationCategories: organization.notificationCategories ?? [],
           street: organization.address.street,
           number: organization.address.number,
           neighborhood: organization.address.neighborhood,
@@ -320,11 +313,6 @@ export function OrganizationForm({
     } = values;
     const input: CreateOrganizationInput = {
       ...rest,
-      // Com vários checkboxes de mesmo nome, o react-hook-form devolve `false`
-      // quando nenhum está marcado — a API espera sempre uma lista.
-      notificationCategories: Array.isArray(rest.notificationCategories)
-        ? rest.notificationCategories
-        : [],
       address: {
         street,
         number,
@@ -414,7 +402,7 @@ export function OrganizationForm({
             />
           );
         })()}
-        {kind === 'DONOR' ? (
+        {kind === 'DONOR' && (
           <SelectField label="Tipo de estabelecimento" {...register('type')}>
             {Object.entries(ORGANIZATION_TYPE_LABEL).map(([value, label]) => (
               <option key={value} value={value}>
@@ -422,49 +410,8 @@ export function OrganizationForm({
               </option>
             ))}
           </SelectField>
-        ) : (
-          <InputField
-            type="number"
-            min={0}
-            label="Capacidade estimada de atendimento"
-            {...register('estimatedCapacity')}
-          />
         )}
       </div>
-
-      {kind === 'NGO' && (
-        <>
-          <InputField
-            type="number"
-            min={1}
-            label="Raio de notificação (km)"
-            hint="Você será alertada quando um doador publicar alimentos dentro dessa distância. Padrão: 50km."
-            error={errors.notificationRadiusKm?.message}
-            {...register('notificationRadiusKm')}
-          />
-
-          <fieldset className="rounded-[20px] border-[1.5px] border-line p-4">
-            <legend className="px-1.5 text-sm font-semibold text-ink-body">
-              Categorias de interesse
-            </legend>
-            <p className="mb-3 text-xs text-ink-muted">
-              Deixe tudo desmarcado para receber alerta de qualquer alimento.
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {Object.entries(DONATION_CATEGORY_LABEL).map(([value, label]) => (
-                <label key={value} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    value={value}
-                    {...register('notificationCategories')}
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </>
-      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <InputField

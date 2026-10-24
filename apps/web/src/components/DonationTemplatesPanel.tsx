@@ -65,13 +65,21 @@ export function DonationTemplatesPanel() {
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => setTemplateActive(id, isActive),
-    onSuccess: invalidate,
+    onSuccess: (template) => {
+      setError(null);
+      invalidate();
+      showToast(template.isActive ? 'Recorrência retomada.' : 'Recorrência pausada.', 'info');
+    },
     onError: (err) => setError(getApiErrorMessage(err, 'Não foi possível alterar o modelo.')),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteTemplate,
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+      showToast('Recorrência removida.', 'info');
+    },
     onError: (err) => setError(getApiErrorMessage(err, 'Não foi possível remover o modelo.')),
   });
 
@@ -96,18 +104,13 @@ export function DonationTemplatesPanel() {
           <h2 className="font-display text-[22px] font-semibold text-canvas">Doações recorrentes</h2>
           <p className="mt-1 text-sm text-leaf-200">
             Sobra todo dia? Deixa que a gente publica no horário combinado.
+            {/* Só a contagem: a lista completa (com pausar e remover) já vem logo abaixo. */}
+            {active.length > 0 && (
+              <> {active.length === 1 ? '1 recorrência ativa.' : `${active.length} recorrências ativas.`}</>
+            )}
           </p>
-          {active.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1">
-              {active.map((template) => (
-                <li key={template.id} className="text-sm text-canvas">
-                  <strong className="font-bold">{template.name}</strong> · {describeSchedule(template)}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
-        <Button variant="accent" onClick={() => setShowForm((prev) => !prev)}>
+        <Button variant="accent" aria-expanded={showForm} onClick={() => setShowForm((prev) => !prev)}>
           {showForm ? 'Fechar' : 'Nova recorrência'}
         </Button>
       </div>
@@ -183,6 +186,7 @@ export function DonationTemplatesPanel() {
               min={0}
               max={23}
               label="Hora de publicar"
+              hint="De 0 a 23 — ex.: 20 publica às 20h."
               value={hourOfDay}
               onChange={(e) => setHourOfDay(e.target.value)}
             />
@@ -197,9 +201,14 @@ export function DonationTemplatesPanel() {
             )}
           </div>
 
-          <Button type="submit" className="self-start" loading={createMutation.isPending}>
-            Criar recorrência
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" loading={createMutation.isPending}>
+              Criar recorrência
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>
+              Cancelar
+            </Button>
+          </div>
         </form>
       )}
 
@@ -209,7 +218,7 @@ export function DonationTemplatesPanel() {
           isError={query.isError}
           error={query.error}
           isEmpty={templates.length === 0}
-          emptyMessage="Nenhuma doação recorrente configurada."
+          emptyMessage='Nenhuma doação recorrente configurada. Use "Nova recorrência" para publicar sozinho todo dia.'
           onRetry={() => query.refetch()}
         >
           <div className="flex flex-col gap-2">
@@ -237,11 +246,13 @@ export function DonationTemplatesPanel() {
                 <div className="flex items-center gap-4">
                   <Button
                     variant="secondary"
+                    loading={toggleMutation.isPending && toggleMutation.variables?.id === template.id}
                     onClick={() => toggleMutation.mutate({ id: template.id, isActive: !template.isActive })}
                   >
                     {template.isActive ? 'Pausar' : 'Retomar'}
                   </Button>
                   <InlineDangerButton
+                    disabled={deleteMutation.isPending}
                     onClick={() => {
                       if (!window.confirm(`Remover a recorrência "${template.name}"?`)) return;
                       deleteMutation.mutate(template.id);

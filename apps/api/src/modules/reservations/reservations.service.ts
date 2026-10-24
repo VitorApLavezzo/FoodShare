@@ -89,6 +89,33 @@ export class ReservationsService {
         });
       }
 
+      // Uma reserva ativa por ONG em cada doação. Com aceite parcial, cada envio
+      // virava uma reserva nova da mesma ONG sobre a mesma lista — vários
+      // códigos, várias conversas e o doador sem saber qual valia.
+      //
+      // A trava consultiva (por ONG + lista, liberada no fim da transação)
+      // serializa os pedidos da mesma ONG: o lock dos itens não basta, porque
+      // dois pedidos simultâneos em itens diferentes travam linhas diferentes e
+      // ambos passariam pela checagem abaixo.
+      const lockKey = `reservation:${donationList.id}:${ngoOrganization.id}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))::text`;
+      const activeReservation = await tx.reservation.findFirst({
+        where: {
+          donationListId: donationList.id,
+          ngoOrganizationId: ngoOrganization.id,
+          status: ReservationStatus.ACTIVE,
+        },
+        select: { id: true },
+      });
+      if (activeReservation) {
+        throw new ConflictException({
+          code: 'RESERVATION_ALREADY_EXISTS',
+          message:
+            'Sua ONG já tem uma reserva ativa nesta doação. Para mudar o que vai levar, cancele a reserva atual e reserve de novo.',
+          reservationId: activeReservation.id,
+        });
+      }
+
       // status = 'AVAILABLE' (e não "!= CANCELLED"): item esgotado não entra no
       // lock, então pedir um item já reservado falha aqui em vez de virar uma
       // reserva de quantidade zero.
@@ -384,7 +411,13 @@ export class ReservationsService {
 
   async findMany(user: AuthenticatedUser) {
     const include = {
-      donationList: true,
+      // O doador e o endereço vão junto porque a ONG precisa saber onde buscar
+      // — antes a reserva mostrava só o nome do alimento e o código.
+      donationList: {
+        include: {
+          donorOrganization: { select: { tradeName: true, phone: true, address: true } },
+        },
+      },
       ngoOrganization: true,
       items: { include: { donationItem: true } },
       conversation: true,

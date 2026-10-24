@@ -1,17 +1,33 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchAuditLogs } from '../../lib/audit';
+import { QueryState } from '../ui/QueryState';
 
+// As chaves seguem os `eventType` gravados pela API. Antes eram nomes de um
+// rascunho (DONATION_CREATED, DONATION_UPDATED…) e quase todo evento aparecia
+// como código cru no histórico.
 const EVENT_LABEL: Record<string, string> = {
-  DONATION_CREATED: 'Doação criada',
-  DONATION_UPDATED: 'Doação editada',
-  DONATION_CANCELLED: 'Doação cancelada',
-  DONATION_EXPIRED: 'Doação expirada',
+  DONATION_LIST_CREATED: 'Doação publicada',
+  DONATION_LIST_CREATED_FROM_TEMPLATE: 'Doação recorrente publicada',
+  DONATION_LIST_UPDATED: 'Doação editada',
+  DONATION_LIST_CANCELLED: 'Doação cancelada',
+  DONATION_LIST_EXPIRED: 'Doação expirada',
   DONATION_RESERVED: 'Doação reservada',
   RESERVATION_CANCELLED: 'Reserva cancelada',
+  RESERVATION_EXPIRED: 'Reserva não retirada',
   PICKUP_CONFIRMED: 'Retirada confirmada',
   DONOR_REGISTERED: 'Doador cadastrado',
   NGO_REGISTERED: 'ONG cadastrada',
   ORGANIZATION_APPROVAL_CHANGED: 'Aprovação alterada',
+  USER_BLOCKED: 'Usuário bloqueado',
+  USER_UNBLOCKED: 'Usuário desbloqueado',
+};
+
+const ENTITY_LABEL: Record<string, string> = {
+  DonationList: 'doação',
+  Reservation: 'reserva',
+  Pickup: 'retirada',
+  Organization: 'organização',
+  User: 'usuário',
 };
 
 function formatDate(value: string) {
@@ -22,6 +38,13 @@ export function AuditLogList() {
   const query = useQuery({ queryKey: ['audit-logs'], queryFn: fetchAuditLogs });
 
   if (query.isLoading) return <p className="text-sm text-ink-muted">Carregando histórico…</p>;
+  if (query.isError) {
+    return (
+      <QueryState isLoading={false} isError error={query.error} onRetry={() => query.refetch()}>
+        {null}
+      </QueryState>
+    );
+  }
   const items = query.data?.items ?? [];
 
   return (
@@ -41,7 +64,7 @@ export function AuditLogList() {
                 <span className="font-semibold text-ink">{EVENT_LABEL[log.eventType] ?? log.eventType}</span>
                 <span className="text-ink-muted">
                   {' '}
-                  · {log.entity} · nó {log.nodeId}
+                  · {ENTITY_LABEL[log.entity] ?? log.entity} · nó {log.nodeId}
                 </span>
               </div>
               <span className="text-xs text-ink-muted">{formatDate(log.createdAt)}</span>

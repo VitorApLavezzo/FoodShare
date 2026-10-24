@@ -69,7 +69,8 @@ export function NotificationsBell() {
   // mandar para o detalhe da doação deixaria o usuário numa tela sem chat.
   const openNotification = async (notification: AppNotification) => {
     if (!notification.readAt) {
-      await markNotificationRead(notification.id);
+      // Falhar ao marcar como lida não pode impedir de abrir o que a originou.
+      await markNotificationRead(notification.id).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
     if (notification.conversationId) {
@@ -84,13 +85,21 @@ export function NotificationsBell() {
   };
 
   const removeOne = async (id: string) => {
-    await deleteNotification(id);
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    try {
+      await deleteNotification(id);
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    } catch {
+      showToast('Não foi possível remover a notificação.', 'error');
+    }
   };
 
   const clearAll = async () => {
-    await clearNotifications();
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    try {
+      await clearNotifications();
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    } catch {
+      showToast('Não foi possível limpar as notificações.', 'error');
+    }
   };
 
   return (
@@ -100,18 +109,20 @@ export function NotificationsBell() {
         aria-expanded={open}
         aria-haspopup="menu"
         className="relative flex h-10 w-10 items-center justify-center rounded-full text-leaf-800 transition hover:bg-sand"
-        aria-label="Notificações"
+        aria-label={unreadCount > 0 ? `Notificações (${unreadCount} não lidas)` : 'Notificações'}
       >
         🔔
         {unreadCount > 0 && (
           <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-sun-500 px-1 text-[10px] font-bold text-leaf-800">
-            {unreadCount}
+            {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-40 mt-2 w-80 rounded-[22px] border border-line bg-surface p-2 shadow-[0_12px_32px_rgba(22,82,46,0.12)]">
+        // No celular o painel de 320px ancorado no sino vazava pela esquerda da
+        // tela; ali ele ocupa a largura toda, abaixo do cabeçalho.
+        <div className="fixed inset-x-4 top-[76px] z-40 rounded-[22px] border border-line bg-surface p-2 shadow-[0_12px_32px_rgba(22,82,46,0.12)] sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-80">
           <div className="flex items-center justify-between px-1 pb-1">
             <span className="px-1 text-xs font-bold tracking-[0.04em] text-ink-muted uppercase">
               Notificações

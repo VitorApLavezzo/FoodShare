@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react';
+import { useId, useState, type ChangeEvent } from 'react';
 import { useFieldArray, useForm, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -6,11 +6,15 @@ import { DONATION_CATEGORIES, type DonationCategory } from '@foodshare/types';
 import {
   CATEGORY_LABEL,
   createDonation,
+  donationDateIssues,
   uploadImage,
   type CreateDonationListInput,
   type DonationList,
 } from '../lib/donations';
 import { getApiErrorMessage } from '../lib/api';
+import { toLocalInputValue } from '../lib/format';
+import { InputField, SelectField, TextareaField } from './ui/Field';
+import { Button } from './ui/Button';
 
 const itemSchema = z.object({
   foodName: z.string().min(2, 'Informe o nome do alimento.'),
@@ -23,20 +27,27 @@ const itemSchema = z.object({
   imageUrl: z.string().optional(),
 });
 
-const schema = z.object({
-  items: z.array(itemSchema).min(1, 'Adicione pelo menos um item.'),
-  allowPartial: z.boolean(),
-  availableAt: z.string().min(1, 'Informe a data/hora de disponibilidade.'),
-  pickupDeadline: z.string().min(1, 'Informe o prazo limite de retirada.'),
-  expiresAt: z.string().min(1, 'Informe a validade.'),
-  notes: z.string().optional(),
-});
+const schema = z
+  .object({
+    items: z.array(itemSchema).min(1, 'Adicione pelo menos um item.'),
+    allowPartial: z.boolean(),
+    availableAt: z.string().min(1, 'Informe a data/hora de disponibilidade.'),
+    pickupDeadline: z.string().min(1, 'Informe o prazo limite de retirada.'),
+    expiresAt: z.string().min(1, 'Informe a validade.'),
+    notes: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    for (const issue of donationDateIssues(values)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [issue.field], message: issue.message });
+    }
+  });
 
 type FormValues = z.infer<typeof schema>;
 
-const inputClass =
-  'w-full rounded-2xl border-[1.5px] border-line-strong bg-canvas px-3.5 py-3 text-[15px] text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none';
 const labelClass = 'mb-1.5 block text-sm font-semibold text-ink-body';
+
+// Sugestões, não lista fechada: o campo continua aceitando qualquer unidade.
+const UNIT_SUGGESTIONS = ['kg', 'g', 'un', 'L', 'porções', 'pacotes', 'caixas', 'marmitas'];
 
 const emptyItem = {
   foodName: '',
@@ -66,6 +77,7 @@ function ItemImageField({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const imageUrl = watch(`items.${index}.imageUrl`);
+  const inputId = useId();
 
   const handleChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -85,7 +97,9 @@ function ItemImageField({
 
   return (
     <div>
-      <label className={labelClass}>Foto (opcional)</label>
+      <label htmlFor={inputId} className={labelClass}>
+        Foto (opcional)
+      </label>
       {imageUrl ? (
         <div className="flex items-center gap-3">
           <img
@@ -103,6 +117,7 @@ function ItemImageField({
         </div>
       ) : (
         <input
+          id={inputId}
           type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleChange}
@@ -116,7 +131,13 @@ function ItemImageField({
   );
 }
 
-export function DonationForm({ onCreated }: { onCreated: (donationList: DonationList) => void }) {
+export function DonationForm({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: (donationList: DonationList) => void;
+  onCancel?: () => void;
+}) {
   const [serverError, setServerError] = useState<string | null>(null);
   const {
     register,
@@ -127,7 +148,8 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { items: [emptyItem], allowPartial: true },
+    // "Disponível a partir de" quase sempre é agora: já vem preenchido.
+    defaultValues: { items: [emptyItem], allowPartial: true, availableAt: toLocalInputValue(new Date()) },
   });
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
@@ -166,68 +188,53 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
             </div>
 
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Alimento</label>
-                <input className={inputClass} {...register(`items.${index}.foodName`)} />
-                {errors.items?.[index]?.foodName && (
-                  <p className="mt-1.5 text-xs font-semibold text-danger">
-                    {errors.items[index]?.foodName?.message}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className={labelClass}>Categoria</label>
-                <select className={inputClass} {...register(`items.${index}.category`)}>
-                  {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <InputField
+                label="Alimento"
+                placeholder="Ex.: arroz com feijão"
+                error={errors.items?.[index]?.foodName?.message}
+                {...register(`items.${index}.foodName`)}
+              />
+              <SelectField label="Categoria" {...register(`items.${index}.category`)}>
+                {Object.entries(CATEGORY_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </SelectField>
             </div>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Quantidade</label>
-                <input
-                  type="number"
-                  step="any"
-                  min={0}
-                  className={inputClass}
-                  {...register(`items.${index}.quantity`)}
-                />
-                {errors.items?.[index]?.quantity && (
-                  <p className="mt-1.5 text-xs font-semibold text-danger">
-                    {errors.items[index]?.quantity?.message}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className={labelClass}>Unidade (kg, un, L…)</label>
-                <input className={inputClass} {...register(`items.${index}.unit`)} />
-                {errors.items?.[index]?.unit && (
-                  <p className="mt-1.5 text-xs font-semibold text-danger">
-                    {errors.items[index]?.unit?.message}
-                  </p>
-                )}
-              </div>
+              <InputField
+                type="number"
+                step="any"
+                min={0}
+                label="Quantidade"
+                error={errors.items?.[index]?.quantity?.message}
+                {...register(`items.${index}.quantity`)}
+              />
+              <InputField
+                label="Unidade"
+                placeholder="kg, un, L…"
+                list="donation-unit-suggestions"
+                error={errors.items?.[index]?.unit?.message}
+                {...register(`items.${index}.unit`)}
+              />
             </div>
 
             <div className="mt-4">
-              <label className={labelClass}>Descrição (opcional)</label>
-              <textarea className={inputClass} rows={2} {...register(`items.${index}.description`)} />
+              <TextareaField
+                label="Descrição (opcional)"
+                rows={2}
+                {...register(`items.${index}.description`)}
+              />
             </div>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className={labelClass}>Alergênicos (opcional)</label>
-                <input
-                  className={inputClass}
-                  placeholder="Ex.: contém glúten, leite"
-                  {...register(`items.${index}.allergens`)}
-                />
-              </div>
+              <InputField
+                label="Alergênicos (opcional)"
+                placeholder="Ex.: contém glúten, leite"
+                {...register(`items.${index}.allergens`)}
+              />
               <ItemImageField index={index} setValue={setValue} watch={watch} />
             </div>
           </div>
@@ -251,33 +258,31 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
       </label>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <label className={labelClass}>Disponível a partir de</label>
-          <input type="datetime-local" className={inputClass} {...register('availableAt')} />
-          {errors.availableAt && (
-            <p className="mt-1.5 text-xs font-semibold text-danger">{errors.availableAt.message}</p>
-          )}
-        </div>
-        <div>
-          <label className={labelClass}>Prazo limite de retirada</label>
-          <input type="datetime-local" className={inputClass} {...register('pickupDeadline')} />
-          {errors.pickupDeadline && (
-            <p className="mt-1.5 text-xs font-semibold text-danger">{errors.pickupDeadline.message}</p>
-          )}
-        </div>
-        <div>
-          <label className={labelClass}>Validade</label>
-          <input type="datetime-local" className={inputClass} {...register('expiresAt')} />
-          {errors.expiresAt && (
-            <p className="mt-1.5 text-xs font-semibold text-danger">{errors.expiresAt.message}</p>
-          )}
-        </div>
+        <InputField
+          type="datetime-local"
+          label="Disponível a partir de"
+          error={errors.availableAt?.message}
+          {...register('availableAt')}
+        />
+        <InputField
+          type="datetime-local"
+          label="Prazo limite de retirada"
+          error={errors.pickupDeadline?.message}
+          {...register('pickupDeadline')}
+        />
+        <InputField
+          type="datetime-local"
+          label="Validade do alimento"
+          error={errors.expiresAt?.message}
+          {...register('expiresAt')}
+        />
       </div>
 
-      <div>
-        <label className={labelClass}>Observações (opcional)</label>
-        <input className={inputClass} {...register('notes')} />
-      </div>
+      <InputField
+        label="Observações (opcional)"
+        placeholder="Ex.: retirar pela porta lateral, trazer caixa térmica"
+        {...register('notes')}
+      />
 
       <p className="text-xs text-ink-muted">
         Lembre-se de seguir as normas sanitárias aplicáveis ao armazenamento e transporte de alimentos.
@@ -289,13 +294,22 @@ export function DonationForm({ onCreated }: { onCreated: (donationList: Donation
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="self-start rounded-full bg-leaf-800 px-[22px] py-2.5 text-[15px] font-bold text-canvas shadow-[0_2px_0_var(--color-leaf-900)] transition hover:bg-leaf-600 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isSubmitting ? 'Publicando…' : 'Publicar doação'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="md" loading={isSubmitting}>
+          {isSubmitting ? 'Publicando…' : 'Publicar doação'}
+        </Button>
+        {onCancel && (
+          <Button type="button" variant="secondary" size="md" onClick={onCancel}>
+            Cancelar
+          </Button>
+        )}
+      </div>
+
+      <datalist id="donation-unit-suggestions">
+        {UNIT_SUGGESTIONS.map((unit) => (
+          <option key={unit} value={unit} />
+        ))}
+      </datalist>
     </form>
   );
 }

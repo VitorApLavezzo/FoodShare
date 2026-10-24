@@ -157,10 +157,22 @@ export class DonationsService {
     const isOwner = await this.isOwnerOfDonationList(user.id, donationList);
     if (isOwner) return donationList;
 
-    const visibleToNgo =
-      donationList.status === DonationListStatus.OPEN &&
-      donationList.donorOrganization.approvalStatus === ApprovalStatus.APPROVED;
-    if (user.role === 'NGO' && visibleToNgo) return donationList;
+    if (user.role === 'NGO') {
+      const visibleToNgo =
+        donationList.status === DonationListStatus.OPEN &&
+        donationList.donorOrganization.approvalStatus === ApprovalStatus.APPROVED;
+      if (visibleToNgo) return donationList;
+
+      // Quem reservou continua enxergando a doação depois que ela sai de OPEN.
+      // Sem isso, reservar a lista inteira levava a ONG direto a um 403 — e os
+      // avisos de "doação cancelada" e "retirada confirmada" abriam numa tela
+      // de "sem acesso".
+      const reservation = await this.prisma.reservation.findFirst({
+        where: { donationListId: donationList.id, ngoOrganization: { users: { some: { userId: user.id } } } },
+        select: { id: true },
+      });
+      if (reservation) return donationList;
+    }
 
     throw new ForbiddenException({
       code: 'FORBIDDEN_DONATION_ACCESS',

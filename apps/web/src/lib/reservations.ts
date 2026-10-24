@@ -11,6 +11,20 @@ export interface ReservationItem {
   donationItem?: { foodName: string; unit: string };
 }
 
+export interface ReservationDonor {
+  tradeName: string;
+  phone?: string;
+  address: {
+    street: string;
+    number?: string | null;
+    neighborhood?: string | null;
+    city: string;
+    state: string;
+    latitude?: number | null;
+    longitude?: number | null;
+  };
+}
+
 export interface Reservation {
   id: string;
   donationListId: string;
@@ -18,7 +32,8 @@ export interface Reservation {
   reservedAt: string;
   cancelledAt?: string | null;
   pickupCode: string;
-  donationList: DonationList;
+  donationList: Omit<DonationList, 'donorOrganization'> & { donorOrganization?: ReservationDonor };
+  ngoOrganization?: { tradeName: string; phone?: string; responsibleName?: string };
   items: ReservationItem[];
   conversationId?: string;
 }

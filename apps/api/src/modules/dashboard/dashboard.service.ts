@@ -60,7 +60,7 @@ export class DashboardService {
       deletedAt: null,
     };
 
-    const [statusGroups, offered, delivered, monthly, recentHistory] = await Promise.all([
+    const [statusGroups, offered, delivered, completedPickups, monthly, recentHistory] = await Promise.all([
       this.prisma.donationItem.groupBy({
         by: ['status'],
         where: { donationList: listWhere },
@@ -76,6 +76,11 @@ export class DashboardService {
         },
         _sum: { quantity: true },
       }),
+      // O status do item não distingue "reservado" de "já retirado" (os dois
+      // ficam FULLY_RESERVED); a retirada concluída mora na reserva.
+      this.prisma.reservation.count({
+        where: { status: ReservationStatus.COMPLETED, donationList: listWhere },
+      }),
       this.monthlySeries(link.organizationId),
       this.prisma.donationItem.findMany({
         where: { donationList: listWhere },
@@ -90,6 +95,7 @@ export class DashboardService {
 
     return {
       totals: this.toStatusTotals(statusGroups),
+      completedPickups,
       totalQuantityDonated,
       totalQuantityOffered,
       // Aproveitamento por quantidade (não por contagem de itens): é o que não
@@ -309,6 +315,7 @@ export class DashboardService {
   private emptyDonorDashboard() {
     return {
       totals: this.toStatusTotals([]),
+      completedPickups: 0,
       totalQuantityDonated: 0,
       totalQuantityOffered: 0,
       utilizationRatePercent: 0,

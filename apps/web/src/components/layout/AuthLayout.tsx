@@ -49,9 +49,11 @@ export function AuthLayout({
 
       <div className="flex flex-col justify-center bg-surface px-6 py-12 sm:px-12 lg:px-16">
         <div className="mx-auto w-full max-w-[380px]">
-          <div className="mb-8 lg:hidden">
+          {/* No celular o painel da esquerda some, e com ele o único caminho de
+              volta para a página inicial. */}
+          <Link to="/" className="mb-8 inline-block lg:hidden">
             <Logo className="h-7 w-auto" />
-          </div>
+          </Link>
 
           <h1 className="font-display text-[2.125rem] leading-tight font-semibold text-leaf-800">{title}</h1>
           <p className="mt-2 text-[15px] text-ink-muted">{subtitle}</p>

@@ -1,10 +1,18 @@
 import { api } from './api';
 
 export interface DonorDashboard {
-  totals: Record<string, number>;
+  totals: Partial<Record<'AVAILABLE' | 'FULLY_RESERVED' | 'CANCELLED' | 'EXPIRED', number>>;
+  completedPickups: number;
   totalQuantityDonated: number;
   monthly: { month: string; count: number; quantity: number }[];
-  recentHistory: { id: string; foodName: string; status: string; quantity: number; unit: string; updatedAt: string }[];
+  recentHistory: {
+    id: string;
+    foodName: string;
+    status: string;
+    quantity: number;
+    unit: string;
+    updatedAt: string;
+  }[];
 }
 
 export interface NgoDashboard {
@@ -12,7 +20,14 @@ export interface NgoDashboard {
   activeReservations: number;
   completedPickups: number;
   totalQuantityReceived: number;
-  recentHistory: { id: string; foodName: string; status: string; quantity: number; unit: string; reservedAt: string }[];
+  recentHistory: {
+    id: string;
+    foodName: string;
+    status: string;
+    quantity: number;
+    unit: string;
+    reservedAt: string;
+  }[];
 }
 
 export interface AdminDashboard {

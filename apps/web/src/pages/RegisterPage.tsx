@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -31,7 +31,7 @@ const ROLE_OPTIONS = [
 ] as const;
 
 export function RegisterPage() {
-  const { register: registerUser } = useAuth();
+  const { user, register: registerUser } = useAuth();
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>(
@@ -80,7 +80,7 @@ export function RegisterPage() {
     setServerError(null);
     try {
       await registerUser(values);
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (error) {
       setServerError(getApiErrorMessage(error, 'Não foi possível criar a conta.'));
     }
@@ -94,6 +94,8 @@ export function RegisterPage() {
     ) : emailStatus === 'available' ? (
       <span className="font-semibold text-leaf-600">✓ E-mail disponível.</span>
     ) : undefined;
+
+  if (user && !isSubmitting) return <Navigate to="/dashboard" replace />;
 
   return (
     <AuthLayout

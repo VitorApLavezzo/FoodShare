@@ -1,4 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { Link, type LinkProps } from 'react-router-dom';
 
 type Variant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
@@ -25,6 +26,10 @@ const SIZE_CLASS: Record<Size, string> = {
   lg: 'px-7 py-3.5 text-base',
 };
 
+function buttonClass(variant: Variant, size: Size, className: string) {
+  return `inline-flex items-center justify-center gap-2 rounded-full transition focus-visible:ring-4 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${className}`;
+}
+
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
@@ -36,7 +41,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-full transition focus-visible:ring-4 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${className}`}
+      className={buttonClass(variant, size, className)}
       {...props}
     >
       {loading && (
@@ -50,6 +55,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ),
 );
 Button.displayName = 'Button';
+
+/**
+ * Navegação com cara de botão. Antes era `<Link><Button/></Link>`: um botão
+ * dentro de um link é HTML inválido, conta duas paradas no Tab e o leitor de
+ * tela anuncia os dois.
+ */
+export const ButtonLink = forwardRef<HTMLAnchorElement, LinkProps & { variant?: Variant; size?: Size }>(
+  ({ variant = 'primary', size = 'sm', className = '', ...props }, ref) => (
+    <Link ref={ref} className={buttonClass(variant, size, className)} {...props} />
+  ),
+);
+ButtonLink.displayName = 'ButtonLink';
 
 /**
  * Ação destrutiva escrita como texto, não como botão cheio: "Cancelar doação"

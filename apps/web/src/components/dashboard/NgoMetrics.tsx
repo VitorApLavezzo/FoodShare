@@ -1,11 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchNgoDashboard } from '../../lib/dashboard';
+import { QueryState } from '../ui/QueryState';
 import { StatCard } from './StatCard';
 
 export function NgoMetrics() {
   const query = useQuery({ queryKey: ['dashboard', 'ngo'], queryFn: fetchNgoDashboard });
 
   if (query.isLoading) return <p className="text-sm text-ink-muted">Carregando métricas…</p>;
+  if (query.isError) {
+    return (
+      <QueryState isLoading={false} isError error={query.error} onRetry={() => query.refetch()}>
+        {null}
+      </QueryState>
+    );
+  }
   if (!query.data) return null;
   const { availableNearby, activeReservations, completedPickups, totalQuantityReceived } = query.data;
 

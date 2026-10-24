@@ -195,6 +195,43 @@ describe('DonationsService', () => {
     });
   });
 
+  describe('detalhe da doação para a ONG', () => {
+    const ngoUser: AuthenticatedUser = { ...user, id: 'ngo-user-1', role: 'NGO' };
+    const reservedList = {
+      id: 'donation-list-1',
+      donorOrganizationId: 'org-1',
+      status: DonationListStatus.FULLY_RESERVED,
+      donorOrganization: { approvalStatus: ApprovalStatus.APPROVED },
+    };
+
+    function buildDetailService(reservation: { id: string } | null) {
+      return buildService({
+        organizationUser: { findFirst: jest.fn().mockResolvedValue(null) },
+        donationList: { findFirst: jest.fn().mockResolvedValue(reservedList) },
+        reservation: { findFirst: jest.fn().mockResolvedValue(reservation) },
+      });
+    }
+
+    it('continua mostrando a doação já reservada para a ONG que reservou', async () => {
+      const { service, prisma } = buildDetailService({ id: 'reservation-1' });
+
+      await expect(service.findOne(ngoUser, 'donation-list-1')).resolves.toBe(reservedList);
+      expect(
+        (prisma as unknown as { reservation: { findFirst: jest.Mock } }).reservation.findFirst,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ donationListId: 'donation-list-1' }),
+        }),
+      );
+    });
+
+    it('recusa a doação reservada para uma ONG que não tem reserva nela', async () => {
+      const { service } = buildDetailService(null);
+
+      await expect(service.findOne(ngoUser, 'donation-list-1')).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   it('rejeita a criação quando o doador não tem organização cadastrada', async () => {
     const { service } = buildService({
       organizationUser: { findFirst: jest.fn().mockResolvedValue(null) },

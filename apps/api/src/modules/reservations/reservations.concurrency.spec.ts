@@ -414,4 +414,72 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     expect(item.remainingQuantity.toNumber()).toBe(0);
     expect(item.status).toBe('FULLY_RESERVED');
   }, 30_000);
+
+  // Uma reserva ativa por ONG em cada doação: com reserva parcial, o formulário
+  // seguia aberto depois da primeira e cada envio virava uma reserva nova da
+  // mesma ONG sobre a mesma lista.
+  it('recusa uma segunda reserva ativa da mesma ONG na mesma doação', async () => {
+    const list = await createDonationList(10, true, 5);
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    await service.reserve(userA, {
+      donationListId: list.id,
+      items: [{ donationItemId: list.items[0].id, quantity: 2 }],
+    });
+
+    await expect(
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: list.items[0].id, quantity: 2 }],
+      }),
+    ).rejects.toMatchObject({ response: { code: 'RESERVATION_ALREADY_EXISTS' } });
+
+    const active = await prisma.reservation.count({
+      where: { donationListId: list.id, status: 'ACTIVE' },
+    });
+    expect(active).toBe(1);
+  }, 30_000);
+
+  // Clique duplo em itens diferentes: o lock dos itens não serializa os dois
+  // pedidos (cada um trava uma linha), então a regra precisa de trava própria.
+  it('com dois pedidos simultâneos da mesma ONG em itens diferentes, só um vira reserva', async () => {
+    const list = await createDonationList(10, true, 5);
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    const results = await Promise.allSettled([
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: list.items[0].id }],
+      }),
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: list.items[1].id }],
+      }),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    const active = await prisma.reservation.count({
+      where: { donationListId: list.id, status: 'ACTIVE' },
+    });
+    expect(active).toBe(1);
+  }, 30_000);
+
+  it('depois de cancelar, a mesma ONG pode reservar de novo', async () => {
+    const list = await createDonationList(10, true);
+    const userA: AuthenticatedUser = { id: ngoAId, email: 'a', role: 'NGO', nodeId: 'LIMEIRA' };
+
+    const first = await service.reserve(userA, {
+      donationListId: list.id,
+      items: [{ donationItemId: list.items[0].id, quantity: 2 }],
+    });
+    await service.cancel(userA, first.id);
+
+    await expect(
+      service.reserve(userA, {
+        donationListId: list.id,
+        items: [{ donationItemId: list.items[0].id, quantity: 4 }],
+      }),
+    ).resolves.toMatchObject({ donationListId: list.id });
+  }, 30_000);
 });

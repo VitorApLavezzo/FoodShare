@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchAdminUsers, updateUserStatus, type AdminUser } from '../lib/admin';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime } from '../lib/format';
+import { useDebouncedValue } from '../lib/use-debounced-value';
+import { useAuth } from '../context/AuthContext';
 import { AppHeader } from '../components/layout/AppHeader';
 import { QueryState } from '../components/ui/QueryState';
 import { Button } from '../components/ui/Button';
@@ -18,13 +20,22 @@ const ROLE_TONE: Record<string, BadgeTone> = { ADMIN: 'ink', DONOR: 'sun', NGO: 
 export function AdminUsersPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { user: currentUser } = useAuth();
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  // Uma busca por pausa na digitação, não uma por tecla.
+  const debouncedSearch = useDebouncedValue(search.trim());
 
   const query = useQuery({
-    queryKey: ['admin-users', search],
-    queryFn: () => fetchAdminUsers({ search: search || undefined }),
+    queryKey: ['admin-users', debouncedSearch, page],
+    queryFn: () => fetchAdminUsers({ search: debouncedSearch || undefined, page }),
+    placeholderData: (previous) => previous,
   });
+
+  const total = query.data?.total ?? 0;
+  const limit = query.data?.limit ?? 20;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const mutation = useMutation({
     mutationFn: ({ id, isActive, reason }: { id: string; isActive: boolean; reason?: string }) =>
@@ -62,8 +73,12 @@ export function AdminUsersPage() {
         </div>
 
         <input
+          type="search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
           placeholder="Buscar por nome ou e-mail…"
           aria-label="Buscar usuário"
           className="w-full max-w-sm rounded-full border-[1.5px] border-line-strong bg-surface px-4.5 py-2.5 text-sm text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:ring-4 focus:ring-leaf-600/15 focus:outline-none"
@@ -111,18 +126,42 @@ export function AdminUsersPage() {
                       </p>
                     )}
                   </div>
-                  <Button
-                    variant={user.isActive ? 'danger' : 'secondary'}
-                    loading={mutation.isPending}
-                    onClick={() => toggle(user)}
-                  >
-                    {user.isActive ? 'Bloquear' : 'Desbloquear'}
-                  </Button>
+                  {/* A API recusa o autobloqueio; o botão nem aparece na própria conta. */}
+                  {user.id === currentUser?.id ? (
+                    <span className="text-xs font-semibold text-ink-muted">Você</span>
+                  ) : (
+                    <Button
+                      variant={user.isActive ? 'danger' : 'secondary'}
+                      // Só a linha clicada gira: antes todas mostravam carregando.
+                      loading={mutation.isPending && mutation.variables?.id === user.id}
+                      disabled={mutation.isPending}
+                      onClick={() => toggle(user)}
+                    >
+                      {user.isActive ? 'Bloquear' : 'Desbloquear'}
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
           </QueryState>
         </div>
+
+        {/* A API pagina de 20 em 20 e a tela mostrava só a primeira página. */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 text-sm text-ink-muted">
+            <span>
+              Página {page} de {totalPages} · {total} {total === 1 ? 'usuário' : 'usuários'}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                Anterior
+              </Button>
+              <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                Próxima
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

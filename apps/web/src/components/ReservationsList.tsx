@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '@foodshare/types';
 import { cancelReservation, fetchReservations, type Reservation } from '../lib/reservations';
+import { directionsUrl, formatAddress } from '../lib/address';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
 import { ChatPanel } from './ChatPanel';
@@ -10,6 +11,7 @@ import { Badge, type BadgeTone } from './ui/Badge';
 import { InlineButton, InlineDangerButton } from './ui/Button';
 import { QueryState } from './ui/QueryState';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 const STATUS_TONE: Record<Reservation['status'], BadgeTone> = {
   ACTIVE: 'leaf',
@@ -21,9 +23,12 @@ const STATUS_TONE: Record<Reservation['status'], BadgeTone> = {
 
 export function ReservationsList() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [openChatId, setOpenChatId] = useState<string | null>(null);
+  const openChatRef = useRef<HTMLDivElement>(null);
+  const [scrollToChat, setScrollToChat] = useState(false);
 
   const isNgo = user?.role === 'NGO';
   const query = useQuery({ queryKey: ['reservations'], queryFn: fetchReservations });
@@ -41,6 +46,8 @@ export function ReservationsList() {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ['reservations'] });
       queryClient.invalidateQueries({ queryKey: ['donations'] });
+      queryClient.invalidateQueries({ queryKey: ['donation'] });
+      showToast('Reserva cancelada. Os itens voltaram a ficar disponíveis.', 'info');
     },
     onError: (err) => setError(getApiErrorMessage(err, 'Não foi possível cancelar a reserva.')),
   });
@@ -66,6 +73,7 @@ export function ReservationsList() {
     if (!match) return;
 
     setOpenChatId(match.id);
+    setScrollToChat(true);
     setSearchParams(
       (previous) => {
         const next = new URLSearchParams(previous);
@@ -77,13 +85,25 @@ export function ReservationsList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedConversationId, conversationIds]);
 
+  // Vindo do sino, a conversa abria lá embaixo da página e a pessoa nem via:
+  // leva a tela até ela.
+  useEffect(() => {
+    if (!scrollToChat || !openChatRef.current) return;
+    openChatRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setScrollToChat(false);
+  }, [scrollToChat, openChatId]);
+
   return (
     <QueryState
       isLoading={query.isLoading}
       isError={query.isError}
       error={query.error}
       isEmpty={items.length === 0}
-      emptyMessage={isNgo ? 'Você ainda não reservou nada.' : 'Nenhuma reserva recebida ainda.'}
+      emptyMessage={
+        isNgo
+          ? 'Você ainda não reservou nada. As doações disponíveis estão logo acima.'
+          : 'Nenhuma reserva recebida ainda. Avisamos assim que uma ONG reservar.'
+      }
       onRetry={() => query.refetch()}
     >
       <div className="flex flex-col gap-3">
@@ -100,10 +120,15 @@ export function ReservationsList() {
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h3 className="text-[17px] font-bold text-ink">
-                  {reservation.items
-                    .map((i) => i.donationItem?.foodName ?? '')
-                    .filter(Boolean)
-                    .join(', ')}
+                  <Link
+                    to={`/doacoes/${reservation.donationListId}`}
+                    className="transition hover:text-leaf-600"
+                  >
+                    {reservation.items
+                      .map((i) => i.donationItem?.foodName ?? '')
+                      .filter(Boolean)
+                      .join(', ')}
+                  </Link>
                 </h3>
                 <p className="mt-0.5 text-sm text-ink-muted">
                   {reservation.items
@@ -124,6 +149,42 @@ export function ReservationsList() {
                   {reservation.pickupCode}
                 </span>
               </div>
+            )}
+
+            {/* Quem está do outro lado: a ONG precisa saber onde buscar, e o
+                doador precisa saber quem vem. Nenhum dos dois aparecia. */}
+            {isNgo && reservation.donationList.donorOrganization && (
+              <p className="text-sm text-ink-soft">
+                Retirar em{' '}
+                <strong className="font-semibold text-ink">
+                  {reservation.donationList.donorOrganization.tradeName}
+                </strong>{' '}
+                · {formatAddress(reservation.donationList.donorOrganization.address)}
+                {reservation.donationList.donorOrganization.phone && (
+                  <> · {reservation.donationList.donorOrganization.phone}</>
+                )}
+                {reservation.status === 'ACTIVE' && (
+                  <>
+                    {' '}
+                    ·{' '}
+                    <a
+                      href={directionsUrl(reservation.donationList.donorOrganization.address)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-leaf-600 hover:underline"
+                    >
+                      Como chegar
+                    </a>
+                  </>
+                )}
+              </p>
+            )}
+            {!isNgo && reservation.ngoOrganization && (
+              <p className="text-sm text-ink-soft">
+                Reservado por{' '}
+                <strong className="font-semibold text-ink">{reservation.ngoOrganization.tradeName}</strong>
+                {reservation.ngoOrganization.phone && <> · {reservation.ngoOrganization.phone}</>}
+              </p>
             )}
 
             <p className="text-[13px] text-ink-muted">
@@ -150,7 +211,7 @@ export function ReservationsList() {
             </div>
 
             {openChatId === reservation.id && reservation.conversationId && (
-              <div className="mt-2">
+              <div ref={openChatRef} className="mt-2">
                 <ChatPanel conversationId={reservation.conversationId} />
               </div>
             )}

@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Logo } from './Logo';
 import { NotificationsBell } from '../NotificationsBell';
+import { useOrganizationGate } from '../../lib/use-my-organization';
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Administrador',
@@ -25,7 +26,7 @@ function NavLink({ to, label }: { to: string; label: string }) {
     <Link
       to={to}
       aria-current={active ? 'page' : undefined}
-      className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${
+      className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${
         active ? 'bg-leaf-800 text-canvas' : 'text-ink-soft hover:bg-sand hover:text-leaf-800'
       }`}
     >
@@ -36,7 +37,20 @@ function NavLink({ to, label }: { to: string; label: string }) {
 
 export function AppHeader() {
   const { user, logout } = useAuth();
+  // Antes de cadastrar a organização, só o painel (com o formulário) e o Sair.
+  const { isComplete: canNavigate } = useOrganizationGate();
   if (!user) return null;
+
+  const identity = (
+    <>
+      <span className="text-sm leading-none font-semibold text-ink">{user.name.split(' ')[0]}</span>
+      <span
+        className={`rounded-full px-2 py-px text-[10px] font-bold tracking-[0.05em] uppercase ${ROLE_BADGE[user.role]}`}
+      >
+        {ROLE_LABEL[user.role] ?? user.role}
+      </span>
+    </>
+  );
 
   return (
     // z-1000 e não o z-30 de antes: os painéis do Leaflet sobem até z-400 e
@@ -49,25 +63,24 @@ export function AppHeader() {
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
             <NavLink to="/dashboard" label="Painel" />
-            <NavLink to="/map" label="Mapa" />
+            {canNavigate && <NavLink to="/map" label="Mapa" />}
             {user.role === 'ADMIN' && <NavLink to="/reports" label="Relatórios" />}
             {user.role === 'ADMIN' && <NavLink to="/admin/usuarios" label="Usuários" />}
           </nav>
         </div>
 
         <div className="flex items-center gap-3">
-          {(user.role === 'DONOR' || user.role === 'NGO') && <NotificationsBell />}
-          <Link
-            to="/account"
-            className="hidden flex-col items-end gap-0.5 rounded-xl px-2.5 py-1 transition hover:bg-sand sm:flex"
-          >
-            <span className="text-sm leading-none font-semibold text-ink">{user.name.split(' ')[0]}</span>
-            <span
-              className={`rounded-full px-2 py-px text-[10px] font-bold tracking-[0.05em] uppercase ${ROLE_BADGE[user.role]}`}
+          {(user.role === 'DONOR' || user.role === 'NGO') && canNavigate && <NotificationsBell />}
+          {canNavigate ? (
+            <Link
+              to="/account"
+              className="hidden flex-col items-end gap-0.5 rounded-xl px-2.5 py-1 transition hover:bg-sand sm:flex"
             >
-              {ROLE_LABEL[user.role] ?? user.role}
-            </span>
-          </Link>
+              {identity}
+            </Link>
+          ) : (
+            <div className="hidden flex-col items-end gap-0.5 px-2.5 py-1 sm:flex">{identity}</div>
+          )}
           <button
             onClick={() => logout()}
             className="rounded-full border-[1.5px] border-line-bold bg-surface px-4 py-1.5 text-sm font-semibold text-leaf-800 transition hover:border-leaf-800"
@@ -77,11 +90,14 @@ export function AppHeader() {
         </div>
       </div>
 
-      <nav className="flex items-center gap-1 border-t border-line px-6 py-2 sm:hidden">
+      {/* overflow-x-auto: com os quatro itens do admin a barra não cabe em
+          telas estreitas e empurrava a página para o lado. */}
+      <nav className="flex items-center gap-1 overflow-x-auto border-t border-line px-6 py-2 sm:hidden">
         <NavLink to="/dashboard" label="Painel" />
-        <NavLink to="/map" label="Mapa" />
+        {canNavigate && <NavLink to="/map" label="Mapa" />}
         {user.role === 'ADMIN' && <NavLink to="/reports" label="Relatórios" />}
-        <NavLink to="/account" label="Conta" />
+        {user.role === 'ADMIN' && <NavLink to="/admin/usuarios" label="Usuários" />}
+        {canNavigate && <NavLink to="/account" label="Conta" />}
       </nav>
     </header>
   );

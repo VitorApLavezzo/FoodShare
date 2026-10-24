@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useId,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
@@ -21,6 +22,19 @@ const errorInputClass = 'border-danger focus:border-danger focus:ring-danger/15'
 /** Controle de filtro ou barra de ferramentas: pílula, e sempre compacto. */
 export const FILTER_CONTROL_CLASS =
   'rounded-full border-[1.5px] border-line-strong bg-canvas px-4 py-2 text-sm text-ink-body transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none';
+
+/**
+ * Quase nenhum campo do sistema recebia `id`, então o `htmlFor` do rótulo
+ * apontava para lugar nenhum: clicar no rótulo não focava o campo e o leitor de
+ * tela anunciava só "campo de edição". O id gerado garante o vínculo, e as
+ * mensagens de erro/dica passam a ser lidas junto com o campo.
+ */
+function useFieldIds(id: string | undefined, error?: string, hint?: ReactNode) {
+  const generated = useId();
+  const fieldId = id ?? generated;
+  const describedBy = error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined;
+  return { fieldId, describedBy };
+}
 
 function FieldWrapper({
   label,
@@ -64,8 +78,16 @@ function FieldWrapper({
         {children}
         {rightElement && <span className="absolute top-1/2 right-3 -translate-y-1/2">{rightElement}</span>}
       </div>
-      {error && <p className="mt-1.5 text-xs font-semibold text-danger">{error}</p>}
-      {!error && hint && <div className="mt-1.5 text-xs text-ink-muted">{hint}</div>}
+      {error && (
+        <p id={htmlFor ? `${htmlFor}-error` : undefined} className="mt-1.5 text-xs font-semibold text-danger">
+          {error}
+        </p>
+      )}
+      {!error && hint && (
+        <div id={htmlFor ? `${htmlFor}-hint` : undefined} className="mt-1.5 text-xs text-ink-muted">
+          {hint}
+        </div>
+      )}
     </div>
   );
 }
@@ -79,25 +101,29 @@ interface InputFieldProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
-  ({ label, error, hint, icon, rightElement, className = '', id, ...props }, ref) => (
-    <FieldWrapper
-      label={label}
-      htmlFor={id}
-      error={error}
-      hint={hint}
-      icon={icon}
-      rightElement={rightElement}
-      required={props.required}
-    >
-      <input
-        ref={ref}
-        id={id}
-        className={`${baseInputClass} ${icon ? 'pl-11' : ''} ${rightElement ? 'pr-11' : ''} ${error ? errorInputClass : ''} ${className}`}
-        aria-invalid={!!error}
-        {...props}
-      />
-    </FieldWrapper>
-  ),
+  ({ label, error, hint, icon, rightElement, className = '', id, ...props }, ref) => {
+    const { fieldId, describedBy } = useFieldIds(id, error, hint);
+    return (
+      <FieldWrapper
+        label={label}
+        htmlFor={fieldId}
+        error={error}
+        hint={hint}
+        icon={icon}
+        rightElement={rightElement}
+        required={props.required}
+      >
+        <input
+          ref={ref}
+          id={fieldId}
+          className={`${baseInputClass} ${icon ? 'pl-11' : ''} ${rightElement ? 'pr-11' : ''} ${error ? errorInputClass : ''} ${className}`}
+          aria-invalid={!!error}
+          aria-describedby={describedBy}
+          {...props}
+        />
+      </FieldWrapper>
+    );
+  },
 );
 InputField.displayName = 'InputField';
 
@@ -108,17 +134,21 @@ interface TextareaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement>
 }
 
 export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaFieldProps>(
-  ({ label, error, hint, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} required={props.required}>
-      <textarea
-        ref={ref}
-        id={id}
-        className={`${baseInputClass} resize-none ${error ? errorInputClass : ''} ${className}`}
-        aria-invalid={!!error}
-        {...props}
-      />
-    </FieldWrapper>
-  ),
+  ({ label, error, hint, className = '', id, ...props }, ref) => {
+    const { fieldId, describedBy } = useFieldIds(id, error, hint);
+    return (
+      <FieldWrapper label={label} htmlFor={fieldId} error={error} hint={hint} required={props.required}>
+        <textarea
+          ref={ref}
+          id={fieldId}
+          className={`${baseInputClass} resize-none ${error ? errorInputClass : ''} ${className}`}
+          aria-invalid={!!error}
+          aria-describedby={describedBy}
+          {...props}
+        />
+      </FieldWrapper>
+    );
+  },
 );
 TextareaField.displayName = 'TextareaField';
 
@@ -129,32 +159,36 @@ interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
 }
 
 export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
-  ({ label, error, hint, className = '', id, children, ...props }, ref) => (
-    <FieldWrapper label={label} htmlFor={id} error={error} hint={hint} required={props.required}>
-      <select
-        ref={ref}
-        id={id}
-        className={`${baseInputClass} appearance-none pr-10 ${error ? errorInputClass : ''} ${className}`}
-        aria-invalid={!!error}
-        {...props}
-      >
-        {children}
-      </select>
-      <svg
-        className="pointer-events-none absolute top-1/2 right-3.5 -translate-y-1/2 text-ink-faint"
-        width="16"
-        height="16"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden
-      >
-        <path
-          fillRule="evenodd"
-          d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-          clipRule="evenodd"
-        />
-      </svg>
-    </FieldWrapper>
-  ),
+  ({ label, error, hint, className = '', id, children, ...props }, ref) => {
+    const { fieldId, describedBy } = useFieldIds(id, error, hint);
+    return (
+      <FieldWrapper label={label} htmlFor={fieldId} error={error} hint={hint} required={props.required}>
+        <select
+          ref={ref}
+          id={fieldId}
+          className={`${baseInputClass} appearance-none pr-10 ${error ? errorInputClass : ''} ${className}`}
+          aria-invalid={!!error}
+          aria-describedby={describedBy}
+          {...props}
+        >
+          {children}
+        </select>
+        <svg
+          className="pointer-events-none absolute top-1/2 right-3.5 -translate-y-1/2 text-ink-faint"
+          width="16"
+          height="16"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden
+        >
+          <path
+            fillRule="evenodd"
+            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </FieldWrapper>
+    );
+  },
 );
 SelectField.displayName = 'SelectField';

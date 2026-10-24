@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { ProtectedRoute } from './components/ProtectedRoute';
+import { ProtectedRoute, RequireOrganization } from './components/ProtectedRoute';
 import { useLiveUpdates } from './lib/live-updates';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
@@ -14,6 +14,7 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { DonationDetailPage } from './pages/DonationDetailPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 
 // Mapa (leaflet) e relatórios (recharts) são as duas dependências mais pesadas
 // e ficam em rotas secundárias — carregá-las sob demanda tira esse peso do
@@ -50,13 +51,19 @@ export function App() {
                 <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
                 <Route path="/verificar-email" element={<VerifyEmailPage />} />
                 <Route element={<ProtectedRoute />}>
+                  {/* O painel fica sempre aberto: é onde mora o formulário de cadastro. */}
                   <Route path="/dashboard" element={<DashboardPage />} />
-                  <Route path="/doacoes/:id" element={<DonationDetailPage />} />
-                  <Route path="/map" element={<MapPage />} />
+                  <Route element={<RequireOrganization />}>
+                    <Route path="/doacoes/:id" element={<DonationDetailPage />} />
+                    <Route path="/map" element={<MapPage />} />
+                    <Route path="/account" element={<AccountPage />} />
+                  </Route>
+                </Route>
+                <Route element={<ProtectedRoute roles={['ADMIN']} />}>
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/admin/usuarios" element={<AdminUsersPage />} />
-                  <Route path="/account" element={<AccountPage />} />
                 </Route>
+                <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Suspense>
           </AuthProvider>

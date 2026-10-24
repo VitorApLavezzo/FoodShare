@@ -1,7 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api } from '../lib/api';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { api, onSessionExpired } from '../lib/api';
 import { tokenStorage } from '../lib/token-storage';
 import { disconnectSocket } from '../lib/socket';
+import { useToast } from './ToastContext';
 
 export type UserRole = 'ADMIN' | 'DONOR' | 'NGO';
 
@@ -12,6 +14,7 @@ export interface AuthUser {
   role: UserRole;
   isActive: boolean;
   nodeId: string;
+  emailVerifiedAt?: string | null;
 }
 
 interface AuthResponse {
@@ -24,9 +27,15 @@ interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (input: { email: string; password: string; name: string; role: 'DONOR' | 'NGO' }) => Promise<void>;
+  register: (input: {
+    email: string;
+    password: string;
+    name: string;
+    role: 'DONOR' | 'NGO';
+  }) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
+  reloadUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -34,6 +43,11 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  // Lido dentro do aviso de sessão expirada, que é registrado uma vez só.
+  const userRef = useRef(user);
+  userRef.current = user;
 
   const loadCurrentUser = useCallback(async () => {
     if (!tokenStorage.getAccessToken()) {
@@ -55,19 +69,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadCurrentUser();
   }, [loadCurrentUser]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post<AuthResponse>('/auth/login', { email, password });
-    tokenStorage.setTokens(data.accessToken, data.refreshToken);
-    setUser(data.user);
-  }, []);
+  // Sessão que não renovou: volta ao estado deslogado sem recarregar a página.
+  // As rotas protegidas mandam para o login lembrando de onde a pessoa veio.
+  useEffect(
+    () =>
+      onSessionExpired(() => {
+        disconnectSocket();
+        if (userRef.current) showToast('Sua sessão expirou. Entre de novo para continuar.', 'info');
+        setUser(null);
+      }),
+    [showToast],
+  );
+
+  const startSession = useCallback(
+    (data: AuthResponse) => {
+      tokenStorage.setTokens(data.accessToken, data.refreshToken);
+      // Cache de outra sessão (ou de antes do login) não pode aparecer na tela
+      // de quem acabou de entrar.
+      queryClient.clear();
+      setUser(data.user);
+    },
+    [queryClient],
+  );
+
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const { data } = await api.post<AuthResponse>('/auth/login', { email, password });
+      startSession(data);
+    },
+    [startSession],
+  );
 
   const register = useCallback(
     async (input: { email: string; password: string; name: string; role: 'DONOR' | 'NGO' }) => {
       const { data } = await api.post<AuthResponse>('/auth/register', input);
-      tokenStorage.setTokens(data.accessToken, data.refreshToken);
-      setUser(data.user);
+      startSession(data);
     },
-    [],
+    [startSession],
   );
 
   const logout = useCallback(async () => {
@@ -77,13 +115,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // depois do logout, recebendo notificações e mensagens dele.
     disconnectSocket();
     setUser(null);
+    // Idem para o cache: quem entrasse em seguida no mesmo navegador via, por
+    // um instante, as doações e reservas da conta anterior.
+    queryClient.clear();
     if (refreshToken) {
       await api.post('/auth/logout', { refreshToken }).catch(() => undefined);
     }
-  }, []);
+  }, [queryClient]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, setUser }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, login, register, logout, setUser, reloadUser: loadCurrentUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

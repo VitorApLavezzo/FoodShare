@@ -9,11 +9,11 @@ import {
   DONATION_ITEM_STATUS_LABEL,
   type DonationList,
 } from '../lib/donations';
-import { confirmPickup } from '../lib/reservations';
+import { confirmPickup, fetchReservations } from '../lib/reservations';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
 import { useToast } from '../context/ToastContext';
-import { Button, InlineDangerButton } from './ui/Button';
+import { Button, ButtonLink, InlineDangerButton } from './ui/Button';
 import { Badge, type BadgeTone } from './ui/Badge';
 import { QueryState } from './ui/QueryState';
 import { EditDonationListForm } from './EditDonationListForm';
@@ -28,6 +28,9 @@ function ConfirmPickupForm() {
   const { showToast } = useToast();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Mesma chave da lista de reservas: não gera requisição a mais.
+  const reservationsQuery = useQuery({ queryKey: ['reservations'], queryFn: fetchReservations });
+  const hasActiveReservation = (reservationsQuery.data ?? []).some((r) => r.status === 'ACTIVE');
 
   const mutation = useMutation({
     mutationFn: (pickupCode: string) => confirmPickup(pickupCode),
@@ -40,6 +43,10 @@ function ConfirmPickupForm() {
     },
     onError: (err) => setError(getApiErrorMessage(err, 'Código inválido.')),
   });
+
+  // Sem reserva ativa não há ONG a caminho: o painel âmbar chamando atenção
+  // para um código que ninguém tem só confundia quem acabou de publicar.
+  if (!hasActiveReservation && !mutation.isPending) return null;
 
   return (
     <div className="flex flex-col gap-2.5 rounded-[20px] bg-sun-50 px-4.5 py-4">
@@ -55,8 +62,9 @@ function ConfirmPickupForm() {
       >
         <input
           value={code}
-          onChange={(e) => setCode(e.target.value)}
+          onChange={(e) => setCode(e.target.value.replace(/\s/g, '').toUpperCase())}
           maxLength={6}
+          autoComplete="off"
           placeholder="Código"
           aria-label="Código de retirada apresentado pela ONG"
           className="w-[150px] rounded-full border-[1.5px] border-sun-300 bg-surface px-4 py-2 font-mono text-[15px] tracking-[0.15em] text-ink uppercase transition placeholder:tracking-normal placeholder:text-ink-faint focus:border-sun-500 focus:ring-4 focus:ring-sun-500/20 focus:outline-none"
@@ -95,6 +103,18 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
     queryFn: () => fetchDonations({ ...filters, page }),
   });
 
+  // Doações em que a ONG já tem reserva ativa: o botão leva à reserva, não a
+  // um formulário que a API recusaria (uma reserva ativa por ONG em cada doação).
+  const reservationsQuery = useQuery({
+    queryKey: ['reservations'],
+    queryFn: fetchReservations,
+    enabled: mode === 'available',
+  });
+  const reservedListIds = new Set(
+    (reservationsQuery.data ?? []).filter((r) => r.status === 'ACTIVE').map((r) => r.donationListId),
+  );
+
+  const hasFilters = !!(filters.search || filters.category || filters.city);
   const total = query.data?.total ?? 0;
   const limit = query.data?.limit ?? 20;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -102,7 +122,9 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
   const cancelMutation = useMutation({
     mutationFn: cancelDonation,
     onSuccess: () => {
+      setError(null);
       queryClient.invalidateQueries({ queryKey: ['donations'] });
+      queryClient.invalidateQueries({ queryKey: ['reservations'] });
       showToast('Doação cancelada.', 'info');
     },
     onError: (err) => setError(getApiErrorMessage(err, 'Não foi possível cancelar a doação.')),
@@ -148,8 +170,10 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
         isEmpty={items.length === 0}
         emptyMessage={
           mode === 'own'
-            ? 'Você ainda não publicou nenhuma doação.'
-            : 'Nada encontrado. Tente outra categoria ou cidade.'
+            ? 'Você ainda não publicou nenhuma doação. Clique em "Nova doação" para começar.'
+            : hasFilters
+              ? 'Nada encontrado com esses filtros. Tente outra categoria ou cidade.'
+              : 'Nenhuma doação disponível agora. Avisamos pelo sino quando aparecer algo por perto.'
         }
         onRetry={() => query.refetch()}
       >
@@ -183,9 +207,14 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                     )}
                   </p>
                 </div>
-                <Badge tone={STATUS_TONE[donationList.status]}>
-                  {DONATION_LIST_STATUS_LABEL[donationList.status]}
-                </Badge>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                  {mode === 'available' && reservedListIds.has(donationList.id) && (
+                    <Badge tone="ink">Você reservou</Badge>
+                  )}
+                  <Badge tone={STATUS_TONE[donationList.status]}>
+                    {DONATION_LIST_STATUS_LABEL[donationList.status]}
+                  </Badge>
+                </div>
               </div>
 
               <ul className="flex flex-col gap-1">
@@ -234,9 +263,13 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
                   item a item — na lista, o cartão só leva até lá. */}
               {mode === 'available' && donationList.status === 'OPEN' && (
                 <div className="mt-0.5 flex">
-                  <Link to={`/doacoes/${donationList.id}`}>
-                    <Button>Reservar</Button>
-                  </Link>
+                  {reservedListIds.has(donationList.id) ? (
+                    <ButtonLink to={`/doacoes/${donationList.id}`} variant="secondary">
+                      Ver minha reserva
+                    </ButtonLink>
+                  ) : (
+                    <ButtonLink to={`/doacoes/${donationList.id}`}>Ver e reservar</ButtonLink>
+                  )}
                 </div>
               )}
             </article>

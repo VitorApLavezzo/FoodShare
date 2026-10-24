@@ -1,13 +1,20 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { getApiErrorMessage } from '../lib/api';
-import { updateProfile, changePassword, downloadMyData, deleteMyAccount } from '../lib/account';
-import { fetchMyOrganization } from '../lib/organizations';
+import {
+  updateProfile,
+  changePassword,
+  downloadMyData,
+  deleteMyAccount,
+  resendVerification,
+} from '../lib/account';
+import { useMyOrganization } from '../lib/use-my-organization';
 import { AppHeader } from '../components/layout/AppHeader';
 import { InputField } from '../components/ui/Field';
 import { PasswordField } from '../components/ui/PasswordField';
@@ -63,6 +70,44 @@ function SectionCard({
   );
 }
 
+/**
+ * O reenvio existia na API e no cliente desde o começo, mas nenhuma tela o
+ * chamava: quem perdesse o e-mail de confirmação não tinha como pedir outro.
+ */
+function EmailVerificationNotice() {
+  const { showToast } = useToast();
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const resend = async () => {
+    setSending(true);
+    try {
+      const { message } = await resendVerification();
+      setSent(true);
+      showToast(message, 'success');
+    } catch (error) {
+      showToast(getApiErrorMessage(error, 'Não foi possível reenviar agora.'), 'error');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-sun-50 px-4 py-3">
+      <p className="text-sm font-semibold text-sun-900">
+        {sent
+          ? 'Link enviado! Confira sua caixa de entrada (e o spam).'
+          : 'Seu e-mail ainda não foi confirmado — sem isso, os avisos de doação podem não chegar.'}
+      </p>
+      {!sent && (
+        <Button variant="accent" loading={sending} onClick={resend}>
+          Reenviar confirmação
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function ProfileSection() {
   const { user, setUser } = useAuth();
   const { showToast } = useToast();
@@ -70,6 +115,7 @@ function ProfileSection() {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
@@ -83,6 +129,9 @@ function ProfileSection() {
     try {
       const updated = await updateProfile(values.name);
       setUser(updated);
+      // Novo ponto de partida: sem isso o botão seguia ativo como se houvesse
+      // alteração pendente.
+      reset({ name: updated.name });
       showToast('Perfil atualizado.', 'success');
     } catch (error) {
       setServerError(getApiErrorMessage(error, 'Não foi possível atualizar o perfil.'));
@@ -97,8 +146,13 @@ function ProfileSection() {
           label="E-mail"
           value={user.email}
           disabled
-          hint="O e-mail de login não pode ser alterado."
+          hint={
+            user.emailVerifiedAt
+              ? 'Confirmado. O e-mail de login não pode ser alterado.'
+              : 'O e-mail de login não pode ser alterado.'
+          }
         />
+        {!user.emailVerifiedAt && <EmailVerificationNotice />}
         <InputField label="Papel" value={ROLE_LABEL[user.role] ?? user.role} disabled />
         {serverError && (
           <p role="alert" className="text-sm font-semibold text-danger">
@@ -178,10 +232,8 @@ function PasswordSection() {
 function OrganizationSection({ kind }: { kind: 'DONOR' | 'NGO' }) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const organizationQuery = useQuery({
-    queryKey: ['my-organization', kind],
-    queryFn: () => fetchMyOrganization(kind),
-  });
+  // A rota só abre com a organização cadastrada (RequireOrganization).
+  const organizationQuery = useMyOrganization();
 
   if (organizationQuery.isLoading) {
     return <p className="text-sm text-ink-muted">Carregando dados da organização…</p>;
@@ -215,6 +267,7 @@ function OrganizationSection({ kind }: { kind: 'DONOR' | 'NGO' }) {
  */
 function PrivacySection() {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
 
@@ -239,8 +292,11 @@ function PrivacySection() {
     setBusy(true);
     try {
       await deleteMyAccount();
+      // Navega antes de sair: com a ordem inversa a rota protegida mandava
+      // para o login por um instante antes do recarregamento para a home.
+      navigate('/', { replace: true });
       await logout();
-      window.location.href = '/';
+      showToast('Sua conta foi excluída.', 'info');
     } catch {
       showToast('Não foi possível excluir a conta agora.', 'error');
       setBusy(false);
@@ -281,7 +337,11 @@ export function AccountPage() {
             Minha conta
           </h1>
           <p className="mt-1 text-[15px] text-ink-muted">
-            Seu perfil, sua senha e os dados do seu estabelecimento, tudo num lugar só.
+            {user.role === 'NGO'
+              ? 'Seu perfil, sua senha e os dados da sua ONG, tudo num lugar só.'
+              : user.role === 'DONOR'
+                ? 'Seu perfil, sua senha e os dados do seu estabelecimento, tudo num lugar só.'
+                : 'Seu perfil e sua senha, tudo num lugar só.'}
           </p>
         </div>
 

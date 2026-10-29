@@ -175,11 +175,14 @@ export function ReportsPage() {
               onChange={(e) => update({ status: e.target.value })}
             >
               <option value="">Todos</option>
-              {Object.entries(DONATION_ITEM_STATUS_LABEL).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
+              {/* Doação cancelada não entra no relatório, então não é filtro. */}
+              {Object.entries(DONATION_ITEM_STATUS_LABEL)
+                .filter(([value]) => value !== 'CANCELLED')
+                .map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
             </select>
           </div>
           {hasFilters && (

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { DonationCategory } from '@prisma/client';
-import { IsIn, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import { IsDateString, IsIn, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { DONATION_CATEGORIES } from '../../../common/enum-values';
 
 export class CreateDonationItemDto {
@@ -45,4 +45,21 @@ export class CreateDonationItemDto {
   @IsOptional()
   @IsString()
   allergens?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Prazo de retirada deste item. Só pode variar entre itens quando a lista aceita reserva parcial; sem ele, vale o prazo da lista.',
+  })
+  @IsOptional()
+  @IsDateString()
+  pickupDeadline?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Validade deste alimento. Sem ela, vale a validade da lista.',
+  })
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
 }

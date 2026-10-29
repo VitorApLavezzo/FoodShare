@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '@foodshare/types';
-import { cancelReservation, fetchReservations, type Reservation } from '../lib/reservations';
+import {
+  cancelReservation,
+  fetchReservations,
+  reservationPickupDeadline,
+  type Reservation,
+} from '../lib/reservations';
 import { directionsUrl, formatAddress } from '../lib/address';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
@@ -189,7 +194,7 @@ export function ReservationsList() {
 
             <p className="text-[13px] text-ink-muted">
               Reservada em {formatDateTime(reservation.reservedAt)} · retirada até{' '}
-              {formatDateTime(reservation.donationList.pickupDeadline)}
+              {formatDateTime(reservationPickupDeadline(reservation))}
             </p>
 
             <div className="mt-0.5 flex items-center gap-4">
@@ -205,14 +210,25 @@ export function ReservationsList() {
                 <InlineButton
                   onClick={() => setOpenChatId((prev) => (prev === reservation.id ? null : reservation.id))}
                 >
-                  {openChatId === reservation.id ? 'Fechar conversa' : 'Conversar'}
+                  {openChatId === reservation.id
+                    ? 'Fechar conversa'
+                    : reservation.status === 'COMPLETED'
+                      ? 'Ver conversa'
+                      : 'Conversar'}
                 </InlineButton>
               )}
             </div>
 
             {openChatId === reservation.id && reservation.conversationId && (
               <div ref={openChatRef} className="mt-2">
-                <ChatPanel conversationId={reservation.conversationId} />
+                <ChatPanel
+                  conversationId={reservation.conversationId}
+                  closedMessage={
+                    reservation.status === 'COMPLETED'
+                      ? 'Retirada confirmada — esta conversa foi encerrada.'
+                      : undefined
+                  }
+                />
               </div>
             )}
           </article>

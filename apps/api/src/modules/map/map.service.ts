@@ -45,15 +45,16 @@ export class MapService {
   async findAvailableDonations(
     params: DistanceParams & { category?: DonationCategory; minQuantity?: number },
   ) {
+    const now = new Date();
     const donationLists = await this.prisma.donationList.findMany({
       where: {
         status: DonationListStatus.OPEN,
-        expiresAt: { gt: new Date() },
         deletedAt: null,
         donorOrganization: { approvalStatus: ApprovalStatus.APPROVED },
         items: {
           some: {
             status: 'AVAILABLE',
+            pickupDeadline: { gt: now },
             category: params.category,
             remainingQuantity: params.minQuantity ? { gte: params.minQuantity } : undefined,
           },
@@ -61,31 +62,39 @@ export class MapService {
       },
       include: { donorOrganization: { include: { address: true } }, items: true },
       take: MAX_CANDIDATES,
-      orderBy: { expiresAt: 'asc' },
+      orderBy: { pickupDeadline: 'asc' },
     });
 
     return this.withDistance(
-      donationLists.map((list) => ({
-        id: list.id,
-        allowPartial: list.allowPartial,
-        items: list.items.map((item) => ({
-          id: item.id,
-          foodName: item.foodName,
-          category: item.category,
-          remainingQuantity: item.remainingQuantity,
-          unit: item.unit,
-        })),
-        pickupDeadline: list.pickupDeadline,
-        expiresAt: list.expiresAt,
-        // Permite agrupar no mapa as listas do mesmo estabelecimento: elas têm
-        // a mesma coordenada e, soltas, ficavam empilhadas num ponto só.
-        donorId: list.donorOrganizationId,
-        donorName: list.donorOrganization.tradeName,
-        latitude: list.donorOrganization.address.latitude,
-        longitude: list.donorOrganization.address.longitude,
-        city: list.donorOrganization.address.city,
-        state: list.donorOrganization.address.state,
-      })),
+      donationLists.map((list) => {
+        // Cada item tem o seu prazo: o que interessa a quem olha o mapa é o
+        // primeiro a vencer entre os que ainda dá para reservar.
+        const reservable = list.items.filter(
+          (item) => item.status === 'AVAILABLE' && item.pickupDeadline > now,
+        );
+        const soonest = (dates: Date[]) => new Date(Math.min(...dates.map((date) => date.getTime())));
+        return {
+          id: list.id,
+          allowPartial: list.allowPartial,
+          items: list.items.map((item) => ({
+            id: item.id,
+            foodName: item.foodName,
+            category: item.category,
+            remainingQuantity: item.remainingQuantity,
+            unit: item.unit,
+          })),
+          pickupDeadline: soonest(reservable.map((item) => item.pickupDeadline)),
+          expiresAt: soonest(reservable.map((item) => item.expiresAt)),
+          // Permite agrupar no mapa as listas do mesmo estabelecimento: elas têm
+          // a mesma coordenada e, soltas, ficavam empilhadas num ponto só.
+          donorId: list.donorOrganizationId,
+          donorName: list.donorOrganization.tradeName,
+          latitude: list.donorOrganization.address.latitude,
+          longitude: list.donorOrganization.address.longitude,
+          city: list.donorOrganization.address.city,
+          state: list.donorOrganization.address.state,
+        };
+      }),
       params,
     );
   }

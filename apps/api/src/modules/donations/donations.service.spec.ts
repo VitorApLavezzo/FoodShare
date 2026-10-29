@@ -123,6 +123,61 @@ describe('DonationsService', () => {
     expect(notificationsService.notifyNearbyNgos).toHaveBeenCalledWith(expect.anything(), 'address-1');
   });
 
+  describe('datas por item', () => {
+    const now = Date.now();
+    const inDays = (days: number) => new Date(now + days * 86_400_000).toISOString();
+
+    it('grava prazo e validade em cada item e, na lista, os mais tardios', async () => {
+      const { service, prisma } = buildService();
+
+      await service.create(user, {
+        allowPartial: true,
+        availableAt: new Date().toISOString(),
+        items: [
+          { ...baseDto.items[0], pickupDeadline: inDays(2), expiresAt: inDays(5) },
+          { ...baseDto.items[0], foodName: 'Pão', pickupDeadline: inDays(3), expiresAt: inDays(4) },
+        ],
+      });
+
+      expect(prisma.donationList.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            pickupDeadline: new Date(inDays(3)),
+            expiresAt: new Date(inDays(5)),
+            items: {
+              create: [
+                expect.objectContaining({
+                  pickupDeadline: new Date(inDays(2)),
+                  expiresAt: new Date(inDays(5)),
+                }),
+                expect.objectContaining({
+                  pickupDeadline: new Date(inDays(3)),
+                  expiresAt: new Date(inDays(4)),
+                }),
+              ],
+            },
+          }),
+        }),
+      );
+    });
+
+    it('recusa prazos diferentes por item quando a lista não aceita reserva parcial', async () => {
+      const { service, prisma } = buildService();
+
+      await expect(
+        service.create(user, {
+          allowPartial: false,
+          availableAt: new Date().toISOString(),
+          items: [
+            { ...baseDto.items[0], pickupDeadline: inDays(2), expiresAt: inDays(5) },
+            { ...baseDto.items[0], foodName: 'Pão', pickupDeadline: inDays(3), expiresAt: inDays(5) },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.donationList.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('cancelamento pelo doador', () => {
     /** Lista com um item inteiro reservado — o caso que antes não podia cancelar. */
     function buildCancellable(status: DonationListStatus) {
@@ -142,7 +197,11 @@ describe('DonationsService', () => {
 
       const tx = {
         reservation: {
-          findMany: jest.fn().mockResolvedValue([{ id: 'res-1', ngoOrganizationId: 'ngo-1' }]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([
+              { id: 'res-1', ngoOrganizationId: 'ngo-1', items: [{ donationItemId: 'item-1' }] },
+            ]),
           updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         },
         donationItem: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -179,9 +238,15 @@ describe('DonationsService', () => {
           data: expect.objectContaining({ status: 'CANCELLED' }),
         }),
       );
-      expect(tx.donationItem.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: 'CANCELLED' } }),
-      );
+      // O item preso à reserva ativa é cancelado; um item esgotado sem reserva
+      // ativa (já todo retirado) ficaria fora do filtro.
+      expect(tx.donationItem.updateMany).toHaveBeenCalledWith({
+        where: {
+          donationListId: 'donation-list-1',
+          OR: [{ status: 'AVAILABLE' }, { status: 'FULLY_RESERVED', id: { in: ['item-1'] } }],
+        },
+        data: { status: 'CANCELLED' },
+      });
       expect(notificationsService.notifyReservationsCancelledByDonor).toHaveBeenCalledWith(
         'donation-list-1',
         ['ngo-1'],

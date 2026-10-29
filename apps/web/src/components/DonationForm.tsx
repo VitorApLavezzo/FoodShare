@@ -7,8 +7,11 @@ import {
   CATEGORY_LABEL,
   createDonation,
   donationDateIssues,
+  minExpiresAt,
+  minPickupDeadline,
   uploadImage,
   type CreateDonationListInput,
+  type DonationDraft,
   type DonationList,
 } from '../lib/donations';
 import { getApiErrorMessage } from '../lib/api';
@@ -25,6 +28,10 @@ const itemSchema = z.object({
   unit: z.string().min(1, 'Informe a unidade (kg, un, L...).'),
   allergens: z.string().optional(),
   imageUrl: z.string().optional(),
+  // Cada alimento tem a sua validade; o prazo de retirada é do item só quando a
+  // ONG pode levar parte da lista (sem isso, é um prazo único, da lista).
+  pickupDeadline: z.string().optional(),
+  expiresAt: z.string().min(1, 'Informe a validade deste alimento.'),
 });
 
 const schema = z
@@ -32,13 +39,35 @@ const schema = z
     items: z.array(itemSchema).min(1, 'Adicione pelo menos um item.'),
     allowPartial: z.boolean(),
     availableAt: z.string().min(1, 'Informe a data/hora de disponibilidade.'),
-    pickupDeadline: z.string().min(1, 'Informe o prazo limite de retirada.'),
-    expiresAt: z.string().min(1, 'Informe a validade.'),
+    pickupDeadline: z.string().optional(),
     notes: z.string().optional(),
   })
   .superRefine((values, ctx) => {
-    for (const issue of donationDateIssues(values)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [issue.field], message: issue.message });
+    const addIssue = (path: (string | number)[], message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+
+    if (values.allowPartial) {
+      values.items.forEach((item, index) => {
+        if (!item.pickupDeadline) addIssue(['items', index, 'pickupDeadline'], 'Informe o prazo de retirada.');
+      });
+    } else if (!values.pickupDeadline) {
+      addIssue(['pickupDeadline'], 'Informe o prazo limite de retirada.');
+    }
+
+    const items = values.items.map((item) => ({
+      pickupDeadline: (values.allowPartial ? item.pickupDeadline : values.pickupDeadline) ?? '',
+      expiresAt: item.expiresAt,
+    }));
+    // Com prazo único, o erro de prazo é um só, embaixo do campo da lista.
+    const reported = new Set<string>();
+    for (const issue of donationDateIssues({ availableAt: values.availableAt, items })) {
+      const path =
+        issue.field === 'pickupDeadline' && !values.allowPartial
+          ? ['pickupDeadline']
+          : ['items', issue.index, issue.field];
+      if (reported.has(path.join('.'))) continue;
+      reported.add(path.join('.'));
+      addIssue(path, issue.message);
     }
   });
 
@@ -57,6 +86,8 @@ const emptyItem = {
   unit: '',
   allergens: '',
   imageUrl: '',
+  pickupDeadline: '',
+  expiresAt: '',
 };
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
@@ -131,12 +162,17 @@ function ItemImageField({
   );
 }
 
+const toIso = (value: string) => new Date(value).toISOString();
+
 export function DonationForm({
   onCreated,
   onCancel,
+  draft,
 }: {
   onCreated: (donationList: DonationList) => void;
   onCancel?: () => void;
+  /** Doação já feita usada como ponto de partida ("Doar de novo"). */
+  draft?: DonationDraft;
 }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const {
@@ -144,22 +180,58 @@ export function DonationForm({
     control,
     handleSubmit,
     setValue,
+    getValues,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     // "Disponível a partir de" quase sempre é agora: já vem preenchido.
-    defaultValues: { items: [emptyItem], allowPartial: true, availableAt: toLocalInputValue(new Date()) },
+    defaultValues: {
+      items: [emptyItem],
+      allowPartial: true,
+      ...draft,
+      availableAt: toLocalInputValue(new Date()),
+    },
   });
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
+  const allowPartial = watch('allowPartial');
+  const sharedPickupDeadline = watch('pickupDeadline');
+  const minDeadline = toLocalInputValue(minPickupDeadline());
+  const minExpiry = (pickupDeadline?: string) => {
+    const min = pickupDeadline ? minExpiresAt(pickupDeadline) : undefined;
+    return min ? toLocalInputValue(min) : undefined;
+  };
+
+  // Trocar o modo de reserva não pode apagar o prazo já digitado: ele passa do
+  // campo único para os itens (ou do primeiro item para o campo único).
+  const allowPartialField = register('allowPartial', {
+    onChange: (event: ChangeEvent<HTMLInputElement>) => {
+      const values = getValues();
+      if (event.target.checked) {
+        values.items.forEach((item, index) => {
+          if (!item.pickupDeadline && values.pickupDeadline) {
+            setValue(`items.${index}.pickupDeadline`, values.pickupDeadline);
+          }
+        });
+      } else if (!values.pickupDeadline) {
+        const first = values.items.find((item) => item.pickupDeadline)?.pickupDeadline;
+        if (first) setValue('pickupDeadline', first);
+      }
+    },
+  });
 
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
     const input: CreateDonationListInput = {
-      ...values,
-      availableAt: new Date(values.availableAt).toISOString(),
-      pickupDeadline: new Date(values.pickupDeadline).toISOString(),
-      expiresAt: new Date(values.expiresAt).toISOString(),
+      allowPartial: values.allowPartial,
+      notes: values.notes,
+      availableAt: toIso(values.availableAt),
+      pickupDeadline: !values.allowPartial && values.pickupDeadline ? toIso(values.pickupDeadline) : undefined,
+      items: values.items.map(({ pickupDeadline, expiresAt, ...item }) => ({
+        ...item,
+        pickupDeadline: values.allowPartial && pickupDeadline ? toIso(pickupDeadline) : undefined,
+        expiresAt: toIso(expiresAt),
+      })),
     };
     try {
       const donationList = await createDonation(input);
@@ -171,6 +243,24 @@ export function DonationForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
+      {draft && (
+        <p className="rounded-2xl bg-sun-50 px-4 py-3 text-sm leading-relaxed text-sun-900">
+          Copiamos os itens de uma doação anterior. Confira as quantidades e informe as datas — prazo de
+          retirada e validade não são copiados.
+        </p>
+      )}
+
+      {/* Vem antes dos itens: é ele que decide se o prazo de retirada é um só
+          ou de cada item. */}
+      <label className="flex items-start gap-2.5 rounded-2xl border border-line bg-canvas p-4 text-sm text-ink-soft">
+        <input type="checkbox" className="mt-0.5" {...allowPartialField} />
+        <span>
+          Permitir que a ONG reserve parcialmente (escolher só alguns itens, ou parte da quantidade de cada
+          um) — e cada item pode ter o seu prazo de retirada. Se desmarcado, a reserva só pode ser feita para
+          a lista inteira, de uma vez, com um prazo único.
+        </span>
+      </label>
+
       <div className="flex flex-col gap-4">
         {fields.map((field, index) => (
           <div key={field.id} className="rounded-[22px] border border-line bg-canvas p-5">
@@ -221,6 +311,27 @@ export function DonationForm({
               />
             </div>
 
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {allowPartial && (
+                <InputField
+                  type="datetime-local"
+                  label="Prazo de retirada"
+                  min={minDeadline}
+                  hint="Pelo menos 1 dia depois da publicação."
+                  error={errors.items?.[index]?.pickupDeadline?.message}
+                  {...register(`items.${index}.pickupDeadline`)}
+                />
+              )}
+              <InputField
+                type="datetime-local"
+                label="Validade do alimento"
+                min={minExpiry(allowPartial ? watch(`items.${index}.pickupDeadline`) : sharedPickupDeadline)}
+                hint="Pelo menos 1 dia depois do prazo de retirada."
+                error={errors.items?.[index]?.expiresAt?.message}
+                {...register(`items.${index}.expiresAt`)}
+              />
+            </div>
+
             <div className="mt-4">
               <TextareaField
                 label="Descrição (opcional)"
@@ -242,40 +353,34 @@ export function DonationForm({
 
         <button
           type="button"
-          onClick={() => append(emptyItem)}
+          // O prazo de retirada costuma ser o mesmo para os itens: o novo já
+          // nasce com o do anterior. A validade não — cada alimento tem a sua.
+          onClick={() =>
+            append({ ...emptyItem, pickupDeadline: getValues(`items.${fields.length - 1}.pickupDeadline`) ?? '' })
+          }
           className="self-start rounded-full border-[1.5px] border-dashed border-line-bold px-4 py-2 text-sm font-semibold text-ink-soft transition hover:border-leaf-600 hover:text-leaf-800"
         >
           + Adicionar item
         </button>
       </div>
 
-      <label className="flex items-start gap-2.5 rounded-2xl border border-line bg-canvas p-4 text-sm text-ink-soft">
-        <input type="checkbox" className="mt-0.5" {...register('allowPartial')} />
-        <span>
-          Permitir que a ONG reserve parcialmente (escolher só alguns itens, ou parte da quantidade de cada
-          um). Se desmarcado, a reserva só pode ser feita para a lista inteira, de uma vez.
-        </span>
-      </label>
-
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <InputField
           type="datetime-local"
           label="Disponível a partir de"
           error={errors.availableAt?.message}
           {...register('availableAt')}
         />
-        <InputField
-          type="datetime-local"
-          label="Prazo limite de retirada"
-          error={errors.pickupDeadline?.message}
-          {...register('pickupDeadline')}
-        />
-        <InputField
-          type="datetime-local"
-          label="Validade do alimento"
-          error={errors.expiresAt?.message}
-          {...register('expiresAt')}
-        />
+        {!allowPartial && (
+          <InputField
+            type="datetime-local"
+            label="Prazo limite de retirada"
+            min={minDeadline}
+            hint="Vale para todos os itens. Pelo menos 1 dia depois da publicação."
+            error={errors.pickupDeadline?.message}
+            {...register('pickupDeadline')}
+          />
+        )}
       </div>
 
       <InputField

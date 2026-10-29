@@ -28,11 +28,13 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     ),
     notifyConversationCreated: jest.fn(),
   };
+  const noopNotifications = { notifyDonorOfReservation: jest.fn() };
   const service = new ReservationsService(
     prisma as never,
     noopAuditLog as never,
     noopSync as never,
     noopChat as never,
+    noopNotifications as never,
   );
   const runId = Date.now();
 
@@ -135,14 +137,16 @@ describe('ReservationsService - concorrência de reserva por item', () => {
     });
     createdOrgIds.push(donorOrg.id);
 
+    const pickupDeadline = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000);
     const list = await prisma.donationList.create({
       data: {
         donorOrganizationId: donorOrg.id,
         nodeId: 'LIMEIRA',
         allowPartial,
         availableAt: new Date(),
-        pickupDeadline: new Date(Date.now() + 2 * 60 * 60 * 1000),
-        expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000),
+        pickupDeadline,
+        expiresAt,
         items: {
           create: [
             {
@@ -151,6 +155,8 @@ describe('ReservationsService - concorrência de reserva por item', () => {
               quantity,
               remainingQuantity: quantity,
               unit: 'un',
+              pickupDeadline,
+              expiresAt,
             },
             // Item extra opcional: mantém a lista OPEN depois que o primeiro
             // item esgota, que é a situação do teste de reserva fantasma.
@@ -162,6 +168,8 @@ describe('ReservationsService - concorrência de reserva por item', () => {
                     quantity: secondItemQuantity,
                     remainingQuantity: secondItemQuantity,
                     unit: 'un',
+                    pickupDeadline,
+                    expiresAt,
                   },
                 ]
               : []),

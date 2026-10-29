@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ChatService } from './chat.service';
 
 /**
@@ -9,7 +9,7 @@ describe('ChatService - autorização', () => {
   const conversation = {
     id: 'conv-1',
     donationListId: 'lista-1',
-    reservation: { ngoOrganizationId: 'ngo-1' },
+    reservation: { ngoOrganizationId: 'ngo-1', status: 'ACTIVE' },
     donationList: { donorOrganizationId: 'donor-1' },
   };
 
@@ -149,6 +149,18 @@ describe('ChatService - autorização', () => {
     expect(prisma.notification.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ userId: 'user-3' }) }),
     );
+  });
+
+  it('recusa mensagem nova depois da retirada confirmada, mas mantém o histórico legível', async () => {
+    const { service, prisma } = buildService(linkedTo('ngo-1'));
+    prisma.conversation.findUnique.mockResolvedValue({
+      ...conversation,
+      reservation: { ...conversation.reservation, status: 'COMPLETED' },
+    });
+
+    await expect(service.sendMessage('user-1', 'conv-1', 'oi')).rejects.toThrow(ConflictException);
+    expect(prisma.message.create).not.toHaveBeenCalled();
+    await expect(service.findMessages('user-1', 'conv-1')).resolves.toEqual([]);
   });
 
   it('rejeita conversa inexistente', async () => {

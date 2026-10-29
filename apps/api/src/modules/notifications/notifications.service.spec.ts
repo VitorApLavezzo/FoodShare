@@ -131,3 +131,56 @@ describe('NotificationsService - raio de proximidade', () => {
     );
   });
 });
+
+describe('NotificationsService - reserva recebida pelo doador', () => {
+  it('avisa cada usuário do doador pelo sino, em tempo real e por e-mail confirmado', async () => {
+    const prisma = {
+      organizationUser: {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'donor-1', user: { email: 'a@t.com', emailVerifiedAt: new Date() } },
+          { userId: 'donor-2', user: { email: 'b@t.com', emailVerifiedAt: null } },
+        ]),
+      },
+      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    };
+    const gateway = { emitToUser: jest.fn() };
+    const mail = { send: jest.fn().mockResolvedValue(true) };
+    const service = new NotificationsService(
+      prisma as never,
+      { get: jest.fn().mockReturnValue('http://web.test') } as never,
+      gateway as never,
+      mail as never,
+    );
+
+    await service.notifyDonorOfReservation({
+      donationListId: 'list-1',
+      donorOrganizationId: 'org-1',
+      ngoName: 'ONG Esperança',
+      itemsSummary: 'Arroz (5 kg)',
+    });
+
+    expect(prisma.organizationUser.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { organizationId: 'org-1' } }),
+    );
+    const message = expect.stringContaining('ONG Esperança') as unknown;
+    expect(prisma.notification.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          userId: 'donor-1',
+          type: 'DONATION_RESERVED',
+          donationListId: 'list-1',
+          message,
+        }),
+        expect.objectContaining({
+          userId: 'donor-2',
+          type: 'DONATION_RESERVED',
+          donationListId: 'list-1',
+          message,
+        }),
+      ],
+    });
+    expect(gateway.emitToUser).toHaveBeenCalledTimes(2);
+    expect(mail.send).toHaveBeenCalledTimes(1);
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'a@t.com' }));
+  });
+});

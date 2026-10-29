@@ -21,6 +21,7 @@ import {
   type Organization,
 } from '../lib/organizations';
 import { getApiErrorMessage } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { fetchAddressByCep, formatCep, geocodeAddress } from '../lib/cep';
 import { isValidCnpj, formatCnpj, fetchCnpjData } from '../lib/cnpj';
 import { InputField, SelectField, TextareaField } from './ui/Field';
@@ -95,6 +96,7 @@ export function OrganizationForm({
   onSaved?: (organization: Organization) => void;
 }) {
   const isEditing = !!organization;
+  const { user } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
   const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'not-found'>(
     'idle',
@@ -140,7 +142,9 @@ export function OrganizationForm({
           latitude: organization.address.latitude,
           longitude: organization.address.longitude,
         }
-      : undefined,
+      : // No cadastro, o e-mail de contato quase sempre é o da própria conta:
+        // já vem preenchido, e dá para trocar se a organização usar outro.
+        { email: user?.email ?? '' },
   });
 
   const [latitude, longitude] = useWatch({

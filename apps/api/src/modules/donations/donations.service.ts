@@ -16,6 +16,7 @@ import { QueryDonationsDto } from './dto/query-donations.dto';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SyncService } from '../sync/sync.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { assertValidDonationDates, latestItemDates, resolveItemDates } from './donation-dates';
 
 const EDITABLE_STATUSES: DonationListStatus[] = [DonationListStatus.OPEN];
 // Cancelar vale também para a lista já toda comprometida: a comida é do doador,
@@ -37,7 +38,13 @@ export class DonationsService {
 
   async create(user: AuthenticatedUser, dto: CreateDonationDto) {
     const organization = await this.getApprovedDonorOrganization(user.id);
-    this.assertValidDates(dto.availableAt, dto.pickupDeadline, dto.expiresAt);
+    const availableAt = new Date(dto.availableAt);
+    const itemDates = resolveItemDates(dto);
+    assertValidDonationDates(
+      availableAt,
+      new Date(),
+      dto.items.map((item, index) => ({ foodName: item.foodName, ...itemDates[index] })),
+    );
 
     const donationList = await this.prisma.donationList.create({
       data: {
@@ -45,11 +52,11 @@ export class DonationsService {
         nodeId: user.nodeId,
         allowPartial: dto.allowPartial,
         notes: dto.notes,
-        availableAt: new Date(dto.availableAt),
-        pickupDeadline: new Date(dto.pickupDeadline),
-        expiresAt: new Date(dto.expiresAt),
+        availableAt,
+        ...latestItemDates(itemDates),
         items: {
-          create: dto.items.map((item) => ({
+          create: dto.items.map((item, index) => ({
+            ...itemDates[index],
             foodName: item.foodName,
             category: item.category,
             description: item.description,
@@ -87,9 +94,16 @@ export class DonationsService {
     const limit = query.limit ?? 20;
 
     const donorOrganizationWhere: Prisma.OrganizationWhereInput = {};
+    const where: Prisma.DonationListWhereInput = {
+      deletedAt: null,
+      donorOrganization: donorOrganizationWhere,
+    };
 
     if (user.role === 'DONOR') {
       donorOrganizationWhere.users = { some: { userId: user.id } };
+      // Doação cancelada sai da visão do doador (o cancelamento é definitivo).
+      // Filtrar aqui, e não na tela, mantém a paginação e o total corretos.
+      where.status = { not: DonationListStatus.CANCELLED };
     } else if (user.role === 'NGO') {
       donorOrganizationWhere.approvalStatus = ApprovalStatus.APPROVED;
     }
@@ -101,23 +115,21 @@ export class DonationsService {
       };
     }
 
-    const where: Prisma.DonationListWhereInput = {
-      deletedAt: null,
-      donorOrganization: donorOrganizationWhere,
+    const itemWhere: Prisma.DonationItemWhereInput = {
+      ...(query.category ? { category: query.category } : {}),
+      ...(query.search ? { foodName: { contains: query.search, mode: 'insensitive' } } : {}),
     };
 
     if (user.role === 'NGO') {
-      where.status = { in: [DonationListStatus.OPEN] };
-      where.expiresAt = { gt: new Date() };
+      where.status = DonationListStatus.OPEN;
+      // Só aparece a lista com algum item que ainda dá para reservar e buscar
+      // — e é nesse item que a busca/categoria tem de bater.
+      itemWhere.status = DonationItemStatus.AVAILABLE;
+      itemWhere.pickupDeadline = { gt: new Date() };
     }
 
-    if (query.category || query.search) {
-      where.items = {
-        some: {
-          ...(query.category ? { category: query.category } : {}),
-          ...(query.search ? { foodName: { contains: query.search, mode: 'insensitive' } } : {}),
-        },
-      };
+    if (Object.keys(itemWhere).length > 0) {
+      where.items = { some: itemWhere };
     }
 
     const [items, total] = await this.prisma.$transaction([
@@ -183,20 +195,56 @@ export class DonationsService {
   async update(user: AuthenticatedUser, id: string, dto: UpdateDonationDto) {
     const donationList = await this.getOwnedEditableDonationList(user, id);
 
-    const availableAt = dto.availableAt ?? donationList.availableAt.toISOString();
-    const pickupDeadline = dto.pickupDeadline ?? donationList.pickupDeadline.toISOString();
-    const expiresAt = dto.expiresAt ?? donationList.expiresAt.toISOString();
-    this.assertValidDates(availableAt, pickupDeadline, expiresAt);
+    const unknownItem = dto.items?.find((patch) => !donationList.items.some((item) => item.id === patch.id));
+    if (unknownItem) {
+      throw new BadRequestException({
+        code: 'ITEM_NOT_FOUND',
+        message: 'Um dos itens informados não pertence a esta doação.',
+      });
+    }
 
-    const updated = await this.prisma.donationList.update({
-      where: { id: donationList.id },
-      data: {
-        notes: dto.notes,
-        availableAt: dto.availableAt ? new Date(dto.availableAt) : undefined,
-        pickupDeadline: dto.pickupDeadline ? new Date(dto.pickupDeadline) : undefined,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-        version: { increment: 1 },
-      },
+    // Precedência: data do próprio item > data da lista (vale para todos) > a atual.
+    const items = donationList.items.map((item) => {
+      const patch = dto.items?.find((p) => p.id === item.id);
+      return {
+        foodName: item.foodName,
+        pickupDeadline: patch?.pickupDeadline ?? dto.pickupDeadline ?? item.pickupDeadline.toISOString(),
+        expiresAt: patch?.expiresAt ?? dto.expiresAt ?? item.expiresAt.toISOString(),
+      };
+    });
+    const itemDates = resolveItemDates({ allowPartial: donationList.allowPartial, items });
+    const availableAt = dto.availableAt ? new Date(dto.availableAt) : donationList.availableAt;
+    assertValidDonationDates(
+      availableAt,
+      donationList.createdAt,
+      items.map((item, index) => ({ foodName: item.foodName, ...itemDates[index] })),
+    );
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      for (const [index, item] of donationList.items.entries()) {
+        const dates = itemDates[index];
+        if (
+          dates.pickupDeadline.getTime() === item.pickupDeadline.getTime() &&
+          dates.expiresAt.getTime() === item.expiresAt.getTime()
+        ) {
+          continue;
+        }
+        await tx.donationItem.update({
+          where: { id: item.id },
+          data: { ...dates, version: { increment: 1 } },
+        });
+      }
+
+      return tx.donationList.update({
+        where: { id: donationList.id },
+        data: {
+          notes: dto.notes,
+          availableAt,
+          ...latestItemDates(itemDates),
+          version: { increment: 1 },
+        },
+        include: { items: true },
+      });
     });
 
     await this.auditLogService.record({
@@ -236,8 +284,9 @@ export class DonationsService {
           donationListId: donationList.id,
           status: ReservationStatus.ACTIVE,
         },
-        select: { id: true, ngoOrganizationId: true },
+        select: { id: true, ngoOrganizationId: true, items: { select: { donationItemId: true } } },
       });
+      const heldItemIds = activeReservations.flatMap((r) => r.items.map((i) => i.donationItemId));
 
       if (activeReservations.length > 0) {
         await tx.reservation.updateMany({
@@ -249,14 +298,17 @@ export class DonationsService {
         });
       }
 
-      // Nada volta para a prateleira: item reservado e item livre terminam os
-      // dois em CANCELLED, senão a lista cancelada reabriria sozinha.
+      // Nada volta para a prateleira: item livre e item preso a uma reserva
+      // ativa terminam os dois em CANCELLED. A exceção é o item esgotado sem
+      // reserva ativa — ele já foi todo retirado, e marcá-lo como cancelado
+      // apagava dos relatórios uma entrega que aconteceu de verdade.
       await tx.donationItem.updateMany({
         where: {
           donationListId: donationList.id,
-          status: {
-            in: [DonationItemStatus.AVAILABLE, DonationItemStatus.FULLY_RESERVED],
-          },
+          OR: [
+            { status: DonationItemStatus.AVAILABLE },
+            { status: DonationItemStatus.FULLY_RESERVED, id: { in: heldItemIds } },
+          ],
         },
         data: { status: DonationItemStatus.CANCELLED },
       });
@@ -377,30 +429,5 @@ export class DonationsService {
       });
     }
     return link.organization;
-  }
-
-  private assertValidDates(availableAt: string, pickupDeadline: string, expiresAt: string) {
-    const available = new Date(availableAt);
-    const deadline = new Date(pickupDeadline);
-    const expires = new Date(expiresAt);
-
-    if (deadline <= available) {
-      throw new BadRequestException({
-        code: 'INVALID_PICKUP_DEADLINE',
-        message: 'O prazo de retirada deve ser posterior ao início da disponibilidade.',
-      });
-    }
-    if (deadline > expires) {
-      throw new BadRequestException({
-        code: 'INVALID_PICKUP_DEADLINE',
-        message: 'O prazo de retirada não pode ser depois da validade do alimento.',
-      });
-    }
-    if (expires <= new Date()) {
-      throw new BadRequestException({
-        code: 'INVALID_EXPIRATION',
-        message: 'A validade informada já está no passado.',
-      });
-    }
   }
 }

@@ -1,8 +1,12 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApprovalStatus, DonationRecurrence, OrganizationKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto/create-template.dto';
+import { MIN_SHELF_LIFE_AFTER_PICKUP_MS } from '../donations/donation-dates';
+
+const DEFAULT_PICKUP_WINDOW_HOURS = 24;
+const DEFAULT_EXPIRES_IN_HOURS = 48;
 
 @Injectable()
 export class TemplatesService {
@@ -10,6 +14,9 @@ export class TemplatesService {
 
   async create(user: AuthenticatedUser, dto: CreateTemplateDto) {
     const organization = await this.getApprovedDonorOrganization(user.id);
+    const pickupWindowHours = dto.pickupWindowHours ?? DEFAULT_PICKUP_WINDOW_HOURS;
+    const expiresInHours = dto.expiresInHours ?? DEFAULT_EXPIRES_IN_HOURS;
+    this.assertValidWindows(pickupWindowHours, expiresInHours);
 
     return this.prisma.donationTemplate.create({
       data: {
@@ -21,8 +28,8 @@ export class TemplatesService {
         recurrence: dto.recurrence,
         hourOfDay: dto.hourOfDay,
         weekday: dto.recurrence === DonationRecurrence.WEEKLY ? (dto.weekday ?? 1) : null,
-        pickupWindowHours: dto.pickupWindowHours ?? 4,
-        expiresInHours: dto.expiresInHours ?? 8,
+        pickupWindowHours,
+        expiresInHours,
         isActive: dto.isActive ?? true,
       },
     });
@@ -38,6 +45,10 @@ export class TemplatesService {
 
   async update(user: AuthenticatedUser, id: string, dto: UpdateTemplateDto) {
     const template = await this.getOwned(user, id);
+    this.assertValidWindows(
+      dto.pickupWindowHours ?? template.pickupWindowHours,
+      dto.expiresInHours ?? template.expiresInHours,
+    );
 
     return this.prisma.donationTemplate.update({
       where: { id: template.id },
@@ -59,6 +70,16 @@ export class TemplatesService {
   async remove(user: AuthenticatedUser, id: string) {
     const template = await this.getOwned(user, id);
     return this.prisma.donationTemplate.delete({ where: { id: template.id } });
+  }
+
+  /** A doação gerada tem de passar nas mesmas regras de data da doação manual. */
+  private assertValidWindows(pickupWindowHours: number, expiresInHours: number) {
+    if (expiresInHours * 3_600_000 < pickupWindowHours * 3_600_000 + MIN_SHELF_LIFE_AFTER_PICKUP_MS) {
+      throw new BadRequestException({
+        code: 'INVALID_EXPIRATION',
+        message: 'A validade precisa ser de pelo menos 1 dia depois do prazo de retirada.',
+      });
+    }
   }
 
   private async getOwned(user: AuthenticatedUser, id: string) {

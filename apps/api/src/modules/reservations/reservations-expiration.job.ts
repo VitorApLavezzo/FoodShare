@@ -24,6 +24,10 @@ export class ReservationsExpirationJob {
    * sempre: o item fica FULLY_RESERVED, ninguém mais consegue pegar e a comida
    * se perde. Passado o prazo de retirada mais uma tolerância, a reserva é
    * marcada como EXPIRED e a quantidade volta para a lista.
+   *
+   * Uma reserva é uma ida só ao doador, com um código só: vale o prazo do item
+   * que vence primeiro. Segurar o resto até o prazo mais tardio deixaria o item
+   * de prazo curto preso numa reserva que já não tem como ser cumprida.
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async expireAbandonedReservations() {
@@ -37,7 +41,7 @@ export class ReservationsExpirationJob {
     const abandoned = await this.prisma.reservation.findMany({
       where: {
         status: ReservationStatus.ACTIVE,
-        donationList: { pickupDeadline: { lt: cutoff } },
+        items: { some: { donationItem: { pickupDeadline: { lt: cutoff } } } },
       },
       include: { items: true },
     });

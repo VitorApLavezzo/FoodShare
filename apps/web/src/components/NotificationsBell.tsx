@@ -78,6 +78,13 @@ export function NotificationsBell() {
       navigate(`/dashboard?conversa=${notification.conversationId}`);
       return;
     }
+    // Reserva recebida: o que o doador precisa ver é quem reservou e o quê —
+    // e isso mora no painel, não no detalhe da doação.
+    if (notification.type === 'DONATION_RESERVED') {
+      setOpen(false);
+      navigate('/dashboard#reservas-recebidas');
+      return;
+    }
     if (notification.donationListId) {
       setOpen(false);
       navigate(`/doacoes/${notification.donationListId}`);

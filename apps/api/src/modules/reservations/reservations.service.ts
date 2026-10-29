@@ -22,6 +22,7 @@ import { SyncService } from '../sync/sync.service';
 import { ChatService } from '../chat/chat.service';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { recomputeDonationListStatus } from '../donations/donation-list-status';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // remainingQuantity vem como texto do $queryRaw: converter para Prisma.Decimal
 // explicitamente evita depender de como o driver mapeia NUMERIC.
@@ -31,6 +32,7 @@ interface LockedItemRow {
   unit: string;
   remainingQuantity: string;
   status: DonationItemStatus;
+  pickupDeadline: Date;
 }
 
 @Injectable()
@@ -42,6 +44,7 @@ export class ReservationsService {
     private readonly auditLogService: AuditLogService,
     private readonly syncService: SyncService,
     private readonly chatService: ChatService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -120,7 +123,8 @@ export class ReservationsService {
       // lock, então pedir um item já reservado falha aqui em vez de virar uma
       // reserva de quantidade zero.
       const rows = await tx.$queryRaw<LockedItemRow[]>(
-        Prisma.sql`SELECT id, "foodName", unit, "remainingQuantity"::text AS "remainingQuantity", status
+        Prisma.sql`SELECT id, "foodName", unit, "remainingQuantity"::text AS "remainingQuantity", status,
+                          "pickupDeadline"
                    FROM donation_items
                    WHERE id = ANY(${itemIds})
                      AND "donationListId" = ${donationList.id}
@@ -132,6 +136,16 @@ export class ReservationsService {
         throw new ConflictException({
           code: 'ITEM_NOT_AVAILABLE',
           message: 'Um ou mais itens não estão mais disponíveis.',
+        });
+      }
+      // O job de expiração roda a cada minuto; até lá, o item com prazo vencido
+      // ainda aparece como disponível — e uma reserva nele já nasceria perdida.
+      const closed = rows.find((row) => row.pickupDeadline <= new Date());
+      if (closed) {
+        throw new ConflictException({
+          code: 'ITEM_PICKUP_CLOSED',
+          message: `O prazo de retirada de "${closed.foodName}" já terminou.`,
+          itemId: closed.id,
         });
       }
 
@@ -215,17 +229,21 @@ export class ReservationsService {
     // Efeitos colaterais best-effort: a reserva já commitou, então uma falha
     // aqui não pode virar 500 para a ONG (antes virava, e ainda deixava a
     // reserva sem conversa).
-    void this.afterReserve(user, reservation, conversation, donorOrganizationId, ngoOrganization.id);
+    void this.afterReserve(user, reservation, conversation, donorOrganizationId, ngoOrganization);
 
     return { ...reservation, conversationId: conversation.id };
   }
 
   private async afterReserve(
     user: AuthenticatedUser,
-    reservation: { id: string; donationListId: string },
+    reservation: {
+      id: string;
+      donationListId: string;
+      items: { donationItemId: string; quantity: Prisma.Decimal }[];
+    },
     conversation: { id: string },
     donorOrganizationId: string,
-    ngoOrganizationId: string,
+    ngoOrganization: { id: string; tradeName: string },
   ) {
     try {
       await this.auditLogService.record({
@@ -242,19 +260,46 @@ export class ReservationsService {
         reservationId: reservation.id,
         donationListId: reservation.donationListId,
         donorOrganizationId,
-        ngoOrganizationId,
+        ngoOrganizationId: ngoOrganization.id,
       });
       // O evento de sincronização desta reserva foi gravado dentro da transação
       // e só vai para o stream no próximo ciclo do cron. O aviso para as telas
       // não pode esperar isso: sem ele, o saldo do item continuaria o antigo na
       // tela do doador por até 30s.
       this.syncService.broadcastChange('DONATION_RESERVED', reservation.donationListId);
+      await this.notifyDonor(reservation, donorOrganizationId, ngoOrganization.tradeName);
     } catch (err) {
       this.logger.error(
         `Efeito pós-commit da reserva ${reservation.id} falhou (a reserva foi criada normalmente).`,
         err as Error,
       );
     }
+  }
+
+  /** "ONG X reservou Arroz (5 kg), Pão (10 un)" — o doador sabe o que separar sem abrir o painel. */
+  private async notifyDonor(
+    reservation: { donationListId: string; items: { donationItemId: string; quantity: Prisma.Decimal }[] },
+    donorOrganizationId: string,
+    ngoName: string,
+  ) {
+    const donationItems = await this.prisma.donationItem.findMany({
+      where: { id: { in: reservation.items.map((i) => i.donationItemId) } },
+      select: { id: true, foodName: true, unit: true },
+    });
+    const itemsSummary = reservation.items
+      .map((i) => {
+        const item = donationItems.find((d) => d.id === i.donationItemId);
+        return item ? `${item.foodName} (${i.quantity.toString()} ${item.unit})` : null;
+      })
+      .filter(Boolean)
+      .join(', ');
+
+    await this.notificationsService.notifyDonorOfReservation({
+      donationListId: reservation.donationListId,
+      donorOrganizationId,
+      ngoName,
+      itemsSummary,
+    });
   }
 
   async cancel(user: AuthenticatedUser, reservationId: string) {
@@ -328,7 +373,10 @@ export class ReservationsService {
     const pickup = await this.prisma.$transaction(async (tx) => {
       const reservation = await tx.reservation.findUnique({
         where: { pickupCode },
-        include: { donationList: true },
+        include: {
+          donationList: true,
+          items: { include: { donationItem: { select: { expiresAt: true } } } },
+        },
       });
       if (!reservation || reservation.status !== ReservationStatus.ACTIVE) {
         throw new BadRequestException({
@@ -336,10 +384,12 @@ export class ReservationsService {
           message: 'Código de retirada inválido.',
         });
       }
-      // Limite de segurança alimentar: passada a validade, a retirada não pode
-      // mais ser confirmada. O prazo de retirada em si é tratado pelo job de
-      // expiração de reservas, que dá uma tolerância antes de liberar o item.
-      if (reservation.donationList.expiresAt <= new Date()) {
+      // Limite de segurança alimentar: passada a validade de qualquer item da
+      // reserva, a retirada não pode mais ser confirmada. O prazo de retirada
+      // em si é tratado pelo job de expiração de reservas, que dá uma
+      // tolerância antes de liberar o item.
+      const now = new Date();
+      if (reservation.items.some((item) => item.donationItem.expiresAt <= now)) {
         throw new ConflictException({
           code: 'DONATION_EXPIRED',
           message: 'Esta doação venceu e não pode mais ser retirada.',
@@ -475,8 +525,9 @@ export class ReservationsService {
 
   /**
    * Devolve as quantidades de uma reserva encerrada aos itens de origem. Um item
-   * cancelado pelo doador ou já expirado NÃO volta a ficar disponível — devolver
-   * a quantidade nesse caso reabriria uma doação que não existe mais.
+   * cancelado pelo doador, já expirado ou com o prazo de retirada vencido NÃO
+   * volta a ficar disponível — devolver a quantidade nesse caso reabriria uma
+   * doação que não existe mais.
    */
   private async releaseReservationItems(
     tx: Prisma.TransactionClient,
@@ -485,7 +536,8 @@ export class ReservationsService {
   ) {
     const itemIds = items.map((i) => i.donationItemId);
     const locked = await tx.$queryRaw<LockedItemRow[]>(
-      Prisma.sql`SELECT id, "foodName", unit, "remainingQuantity"::text AS "remainingQuantity", status
+      Prisma.sql`SELECT id, "foodName", unit, "remainingQuantity"::text AS "remainingQuantity", status,
+                        "pickupDeadline"
                  FROM donation_items
                  WHERE id = ANY(${itemIds})
                  ORDER BY id
@@ -496,9 +548,8 @@ export class ReservationsService {
       where: { id: donationListId },
     });
     const listIsOver =
-      list.expiresAt <= new Date() ||
-      list.status === DonationListStatus.CANCELLED ||
-      list.status === DonationListStatus.EXPIRED;
+      list.status === DonationListStatus.CANCELLED || list.status === DonationListStatus.EXPIRED;
+    const now = new Date();
 
     for (const item of items) {
       const current = locked.find((l) => l.id === item.donationItemId);
@@ -506,6 +557,9 @@ export class ReservationsService {
 
       const isTerminal =
         current.status === DonationItemStatus.CANCELLED || current.status === DonationItemStatus.EXPIRED;
+      // Prazo do próprio item: devolvê-lo depois disso o reabriria para uma
+      // retirada que não pode mais acontecer.
+      const itemIsOver = listIsOver || current.pickupDeadline <= now;
 
       await tx.donationItem.update({
         where: { id: item.donationItemId },
@@ -513,7 +567,7 @@ export class ReservationsService {
           remainingQuantity: { increment: item.quantity },
           status: isTerminal
             ? current.status
-            : listIsOver
+            : itemIsOver
               ? DonationItemStatus.EXPIRED
               : DonationItemStatus.AVAILABLE,
           version: { increment: 1 },

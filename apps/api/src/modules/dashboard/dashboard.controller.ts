@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { DashboardService } from './dashboard.service';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser, type AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('dashboard')
@@ -10,6 +11,13 @@ import { CurrentUser, type AuthenticatedUser } from '../auth/decorators/current-
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
+
+  @Get('public')
+  @Public()
+  @ApiOperation({ summary: 'Números públicos da plataforma, exibidos na página inicial.' })
+  getPublicStats() {
+    return this.dashboardService.getPublicStats();
+  }
 
   @Get('donor')
   @Roles(UserRole.DONOR)

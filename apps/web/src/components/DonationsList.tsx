@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   cancelDonation,
   fetchDonations,
+  sharedItemDate,
   CATEGORY_LABEL,
   DONATION_LIST_STATUS_LABEL,
   DONATION_ITEM_STATUS_LABEL,
@@ -13,7 +14,7 @@ import { confirmPickup, fetchReservations } from '../lib/reservations';
 import { getApiErrorMessage } from '../lib/api';
 import { formatDateTime, formatQuantity } from '../lib/format';
 import { useToast } from '../context/ToastContext';
-import { Button, ButtonLink, InlineDangerButton } from './ui/Button';
+import { Button, ButtonLink, InlineButton, InlineDangerButton } from './ui/Button';
 import { Badge, type BadgeTone } from './ui/Badge';
 import { QueryState } from './ui/QueryState';
 import { EditDonationListForm } from './EditDonationListForm';
@@ -90,7 +91,14 @@ const STATUS_TONE: Record<DonationList['status'], BadgeTone> = {
   EXPIRED: 'stone',
 };
 
-export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
+export function DonationsList({
+  mode,
+  onRepeat,
+}: {
+  mode: 'own' | 'available';
+  /** Doador: abre uma doação nova com os itens desta. */
+  onRepeat?: (donationList: DonationList) => void;
+}) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [error, setError] = useState<string | null>(null);
@@ -142,10 +150,8 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
     cancelMutation.mutate(donationList.id);
   };
 
-  // Doação cancelada some da visão do doador (o cancelamento é definitivo).
-  const items = (query.data?.items ?? []).filter(
-    (donationList) => mode !== 'own' || donationList.status !== 'CANCELLED',
-  );
+  // Doação cancelada já vem filtrada pela API para o doador.
+  const items = query.data?.items ?? [];
 
   return (
     <div className="flex flex-col gap-3">
@@ -183,97 +189,108 @@ export function DonationsList({ mode }: { mode: 'own' | 'available' }) {
               {error}
             </p>
           )}
-          {items.map((donationList) => (
-            <article
-              key={donationList.id}
-              className="flex flex-col gap-2.5 rounded-[22px] border border-line bg-surface p-5 transition hover:border-line-bold hover:shadow-[0_6px_20px_rgba(22,82,46,0.07)]"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h3 className="text-[17px] font-bold text-ink">
-                    <Link to={`/doacoes/${donationList.id}`} className="transition hover:text-leaf-600">
-                      {donationList.items.map((i) => i.foodName).join(', ')}
-                    </Link>
-                  </h3>
-                  <p className="mt-0.5 text-sm text-ink-muted">
-                    {donationList.items.length} {donationList.items.length === 1 ? 'item' : 'itens'} ·{' '}
-                    {donationList.allowPartial ? 'aceita reserva parcial' : 'só tudo de uma vez'}
-                    {donationList.donorOrganization && mode === 'available' && (
-                      <>
-                        {' '}
-                        · {donationList.donorOrganization.tradeName} (
-                        {donationList.donorOrganization.address.city})
-                      </>
+          {items.map((donationList) => {
+            // Cada item tem o seu prazo e a sua validade; quando são iguais em
+            // todos, aparecem uma vez só, no rodapé do cartão.
+            const sharedDeadline = sharedItemDate(donationList.items, 'pickupDeadline');
+            const sharedExpiry = sharedItemDate(donationList.items, 'expiresAt');
+            const isActive = donationList.status === 'OPEN' || donationList.status === 'FULLY_RESERVED';
+            return (
+              <article
+                key={donationList.id}
+                className="flex flex-col gap-2.5 rounded-[22px] border border-line bg-surface p-5 transition hover:border-line-bold hover:shadow-[0_6px_20px_rgba(22,82,46,0.07)]"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="text-[17px] font-bold text-ink">
+                      <Link to={`/doacoes/${donationList.id}`} className="transition hover:text-leaf-600">
+                        {donationList.items.map((i) => i.foodName).join(', ')}
+                      </Link>
+                    </h3>
+                    <p className="mt-0.5 text-sm text-ink-muted">
+                      {donationList.items.length} {donationList.items.length === 1 ? 'item' : 'itens'} ·{' '}
+                      {donationList.allowPartial ? 'aceita reserva parcial' : 'só tudo de uma vez'}
+                      {donationList.donorOrganization && mode === 'available' && (
+                        <>
+                          {' '}
+                          · {donationList.donorOrganization.tradeName} (
+                          {donationList.donorOrganization.address.city})
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                    {mode === 'available' && reservedListIds.has(donationList.id) && (
+                      <Badge tone="ink">Você reservou</Badge>
                     )}
-                  </p>
+                    <Badge tone={STATUS_TONE[donationList.status]}>
+                      {DONATION_LIST_STATUS_LABEL[donationList.status]}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                  {mode === 'available' && reservedListIds.has(donationList.id) && (
-                    <Badge tone="ink">Você reservou</Badge>
-                  )}
-                  <Badge tone={STATUS_TONE[donationList.status]}>
-                    {DONATION_LIST_STATUS_LABEL[donationList.status]}
-                  </Badge>
-                </div>
-              </div>
 
-              <ul className="flex flex-col gap-1">
-                {donationList.items.map((item) => (
-                  <li key={item.id} className="flex items-center gap-2 text-[13px] text-ink-soft">
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sun-500" aria-hidden />
-                    {item.foodName} — {CATEGORY_LABEL[item.category]} ·{' '}
-                    {formatQuantity(item.remainingQuantity, item.unit)} de{' '}
-                    {formatQuantity(item.quantity, item.unit)} · {DONATION_ITEM_STATUS_LABEL[item.status]}
-                  </li>
-                ))}
-              </ul>
+                <ul className="flex flex-col gap-1">
+                  {donationList.items.map((item) => (
+                    <li key={item.id} className="flex items-center gap-2 text-[13px] text-ink-soft">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sun-500" aria-hidden />
+                      {item.foodName} — {CATEGORY_LABEL[item.category]} ·{' '}
+                      {formatQuantity(item.remainingQuantity, item.unit)} de{' '}
+                      {formatQuantity(item.quantity, item.unit)} · {DONATION_ITEM_STATUS_LABEL[item.status]}
+                      {!sharedDeadline && <> · retirar até {formatDateTime(item.pickupDeadline)}</>}
+                      {!sharedExpiry && <> · validade {formatDateTime(item.expiresAt)}</>}
+                    </li>
+                  ))}
+                </ul>
 
-              <p className="text-[13px] text-ink-muted">
-                Retirada até {formatDateTime(donationList.pickupDeadline)} · validade{' '}
-                {formatDateTime(donationList.expiresAt)}
-              </p>
+                <p className="text-[13px] text-ink-muted">
+                  {sharedDeadline ? `Retirada até ${formatDateTime(sharedDeadline)}` : 'Prazo de retirada por item'}{' '}
+                  · {sharedExpiry ? `validade ${formatDateTime(sharedExpiry)}` : 'validade por item'}
+                </p>
 
-              {/* Editar só enquanto a lista está aberta (mudar datas do que já foi
-                  reservado quebraria o combinado), mas cancelar vale também com
-                  tudo reservado: a comida é do doador e um imprevisto não pode
-                  deixá-lo preso a uma entrega que não tem como cumprir. */}
-              {mode === 'own' &&
-                editingId !== donationList.id &&
-                (donationList.status === 'OPEN' || donationList.status === 'FULLY_RESERVED') && (
-                  <div className="mt-0.5 flex items-center gap-4">
+                {/* Editar só enquanto a lista está aberta (mudar datas do que já foi
+                    reservado quebraria o combinado), mas cancelar vale também com
+                    tudo reservado: a comida é do doador e um imprevisto não pode
+                    deixá-lo preso a uma entrega que não tem como cumprir. "Doar de
+                    novo" vale para qualquer doação, inclusive as já encerradas. */}
+                {mode === 'own' && editingId !== donationList.id && (
+                  <div className="mt-0.5 flex flex-wrap items-center gap-4">
                     {donationList.status === 'OPEN' && (
                       <Button variant="secondary" onClick={() => setEditingId(donationList.id)}>
                         Editar
                       </Button>
                     )}
-                    <InlineDangerButton
-                      onClick={() => confirmCancel(donationList)}
-                      disabled={cancelMutation.isPending}
-                    >
-                      Cancelar doação
-                    </InlineDangerButton>
+                    {onRepeat && <InlineButton onClick={() => onRepeat(donationList)}>Doar de novo</InlineButton>}
+                    {isActive && (
+                      <InlineDangerButton
+                        onClick={() => confirmCancel(donationList)}
+                        disabled={cancelMutation.isPending}
+                      >
+                        Cancelar doação
+                      </InlineDangerButton>
+                    )}
                   </div>
                 )}
 
-              {mode === 'own' && editingId === donationList.id && (
-                <EditDonationListForm donationList={donationList} onDone={() => setEditingId(null)} />
-              )}
+                {mode === 'own' && editingId === donationList.id && (
+                  <EditDonationListForm donationList={donationList} onDone={() => setEditingId(null)} />
+                )}
 
-              {/* A reserva mora na tela de detalhe, onde há espaço para escolher
-                  item a item — na lista, o cartão só leva até lá. */}
-              {mode === 'available' && donationList.status === 'OPEN' && (
-                <div className="mt-0.5 flex">
-                  {reservedListIds.has(donationList.id) ? (
-                    <ButtonLink to={`/doacoes/${donationList.id}`} variant="secondary">
-                      Ver minha reserva
-                    </ButtonLink>
-                  ) : (
-                    <ButtonLink to={`/doacoes/${donationList.id}`}>Ver e reservar</ButtonLink>
-                  )}
-                </div>
-              )}
-            </article>
-          ))}
+                {/* A reserva mora na tela de detalhe, onde há espaço para escolher
+                    item a item — na lista, o cartão só leva até lá. */}
+                {mode === 'available' && donationList.status === 'OPEN' && (
+                  <div className="mt-0.5 flex">
+                    {reservedListIds.has(donationList.id) ? (
+                      <ButtonLink to={`/doacoes/${donationList.id}`} variant="secondary">
+                        Ver minha reserva
+                      </ButtonLink>
+                    ) : (
+                      <ButtonLink to={`/doacoes/${donationList.id}`}>Ver e reservar</ButtonLink>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       </QueryState>
 

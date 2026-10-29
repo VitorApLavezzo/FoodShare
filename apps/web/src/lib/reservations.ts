@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { DonationList } from './donations';
+import { earliestDate, type DonationList } from './donations';
 
 import type { ReservationStatus } from '@foodshare/types';
 export type { ReservationStatus };
@@ -8,7 +8,7 @@ export interface ReservationItem {
   id: string;
   donationItemId: string;
   quantity: number;
-  donationItem?: { foodName: string; unit: string };
+  donationItem?: { foodName: string; unit: string; pickupDeadline?: string; expiresAt?: string };
 }
 
 export interface ReservationDonor {
@@ -36,6 +36,17 @@ export interface Reservation {
   ngoOrganization?: { tradeName: string; phone?: string; responsibleName?: string };
   items: ReservationItem[];
   conversationId?: string;
+}
+
+/**
+ * Até quando a ONG precisa buscar: uma reserva é uma ida só, então vale o prazo
+ * do item que vence primeiro (a mesma regra da API ao expirar a reserva).
+ */
+export function reservationPickupDeadline(reservation: Reservation) {
+  return (
+    earliestDate(reservation.items.map((item) => item.donationItem?.pickupDeadline)) ??
+    reservation.donationList.pickupDeadline
+  );
 }
 
 export interface ReserveItemInput {

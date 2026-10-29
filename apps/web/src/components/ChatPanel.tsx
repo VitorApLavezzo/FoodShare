@@ -7,7 +7,16 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
 import { QueryState } from './ui/QueryState';
 
-export function ChatPanel({ conversationId, onClose }: { conversationId: string; onClose?: () => void }) {
+export function ChatPanel({
+  conversationId,
+  onClose,
+  closedMessage,
+}: {
+  conversationId: string;
+  onClose?: () => void;
+  /** Conversa encerrada (retirada confirmada): o histórico fica, o envio sai. */
+  closedMessage?: string;
+}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState('');
@@ -104,7 +113,11 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
           isError={query.isError}
           error={query.error}
           isEmpty={(query.data ?? []).length === 0}
-          emptyMessage="Nenhuma mensagem ainda. Combine aqui os detalhes da retirada."
+          emptyMessage={
+            closedMessage
+              ? 'Nenhuma mensagem foi trocada.'
+              : 'Nenhuma mensagem ainda. Combine aqui os detalhes da retirada.'
+          }
           onRetry={() => query.refetch()}
         >
           {(query.data ?? []).map((message) => {
@@ -126,30 +139,36 @@ export function ChatPanel({ conversationId, onClose }: { conversationId: string;
         <div ref={bottomRef} />
       </div>
 
-      {sendError && (
+      {sendError && !closedMessage && (
         <p role="alert" className="px-3 pb-1 text-xs font-semibold text-danger">
           {sendError}
         </p>
       )}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-        className="flex items-center gap-2 border-t border-line px-3 py-2.5"
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          maxLength={2000}
-          placeholder="Escreva uma mensagem…"
-          className="flex-1 rounded-full border-[1.5px] border-line-strong bg-canvas px-4 py-2 text-sm text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none"
-        />
-        <Button type="submit" size="sm" loading={sending} disabled={!draft.trim()}>
-          Enviar
-        </Button>
-      </form>
+      {closedMessage ? (
+        <p className="border-t border-line bg-sand-soft px-4 py-3 text-center text-sm text-ink-muted">
+          {closedMessage}
+        </p>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+          className="flex items-center gap-2 border-t border-line px-3 py-2.5"
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            maxLength={2000}
+            placeholder="Escreva uma mensagem…"
+            className="flex-1 rounded-full border-[1.5px] border-line-strong bg-canvas px-4 py-2 text-sm text-ink transition placeholder:text-ink-faint focus:border-leaf-600 focus:bg-surface focus:ring-4 focus:ring-leaf-600/15 focus:outline-none"
+          />
+          <Button type="submit" size="sm" loading={sending} disabled={!draft.trim()}>
+            Enviar
+          </Button>
+        </form>
+      )}
     </div>
   );
 }

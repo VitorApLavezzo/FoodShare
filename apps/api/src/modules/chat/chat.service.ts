@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   forwardRef,
   ForbiddenException,
   Inject,
@@ -6,7 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationType, Prisma } from '@prisma/client';
+import { NotificationType, Prisma, ReservationStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
@@ -84,6 +85,14 @@ export class ChatService {
 
   async sendMessage(userId: string, conversationId: string, body: string) {
     const conversation = await this.assertParticipant(userId, conversationId);
+    // A conversa existe para combinar a retirada; com ela confirmada, não há
+    // mais o que combinar. O histórico continua legível.
+    if (conversation.reservation.status === ReservationStatus.COMPLETED) {
+      throw new ConflictException({
+        code: 'CONVERSATION_CLOSED',
+        message: 'A retirada já foi confirmada e esta conversa foi encerrada.',
+      });
+    }
 
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },

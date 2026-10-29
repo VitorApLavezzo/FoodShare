@@ -7,6 +7,7 @@ import {
   OrganizationKind,
   Prisma,
   ReservationStatus,
+  UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -31,6 +32,20 @@ function lastNMonthKeys(n: number): string[] {
   return keys;
 }
 
+// Doação cancelada pelo doador não aconteceu: fica fora das métricas.
+const NOT_CANCELLED = {
+  status: { not: DonationItemStatus.CANCELLED },
+} satisfies Prisma.DonationItemWhereInput;
+
+/**
+ * Entregue sobre ofertado, em %. O teto de 100% cobre o item retirado em parte
+ * e cancelado depois: a parte entregue conta, a oferta cancelada não.
+ */
+function utilizationRate(delivered: number, offered: number) {
+  if (offered === 0) return 0;
+  return Math.min(100, Math.round((delivered / offered) * 1000) / 10);
+}
+
 function monthsAgo(n: number): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth() - (n - 1), 1);
@@ -49,6 +64,18 @@ export class DashboardService {
     private readonly config: ConfigService,
   ) {}
 
+  /**
+   * Quantos doadores e ONGs têm conta na plataforma. A página inicial mostrava
+   * um "3" fixo (os três papéis de acesso), que parecia um contador travado.
+   * Só a contagem: nada que identifique alguém sai por esta rota pública.
+   */
+  async getPublicStats() {
+    const profiles = await this.prisma.user.count({
+      where: { role: { in: [UserRole.DONOR, UserRole.NGO] }, isActive: true, deletedAt: null },
+    });
+    return { profiles };
+  }
+
   async getDonorDashboard(user: AuthenticatedUser) {
     const link = await this.prisma.organizationUser.findFirst({
       where: { userId: user.id, organization: { kind: OrganizationKind.DONOR } },
@@ -59,15 +86,16 @@ export class DashboardService {
       donorOrganizationId: link.organizationId,
       deletedAt: null,
     };
+    const itemWhere: Prisma.DonationItemWhereInput = { donationList: listWhere, ...NOT_CANCELLED };
 
     const [statusGroups, offered, delivered, completedPickups, monthly, recentHistory] = await Promise.all([
       this.prisma.donationItem.groupBy({
         by: ['status'],
-        where: { donationList: listWhere },
+        where: itemWhere,
         _count: { _all: true },
       }),
       this.prisma.donationItem.aggregate({
-        where: { donationList: listWhere },
+        where: itemWhere,
         _sum: { quantity: true },
       }),
       this.prisma.reservationItem.aggregate({
@@ -83,7 +111,7 @@ export class DashboardService {
       }),
       this.monthlySeries(link.organizationId),
       this.prisma.donationItem.findMany({
-        where: { donationList: listWhere },
+        where: itemWhere,
         orderBy: { createdAt: 'desc' },
         take: 10,
         select: { id: true, foodName: true, status: true, quantity: true, unit: true, updatedAt: true },
@@ -100,10 +128,7 @@ export class DashboardService {
       totalQuantityOffered,
       // Aproveitamento por quantidade (não por contagem de itens): é o que não
       // deixa a taxa ultrapassar 100% quando um item é retirado só em parte.
-      utilizationRatePercent:
-        totalQuantityOffered === 0
-          ? 0
-          : Math.round((totalQuantityDonated / totalQuantityOffered) * 1000) / 10,
+      utilizationRatePercent: utilizationRate(totalQuantityDonated, totalQuantityOffered),
       monthly,
       recentHistory,
     };
@@ -161,6 +186,7 @@ export class DashboardService {
 
   async getAdminDashboard() {
     const listWhere: Prisma.DonationListWhereInput = { deletedAt: null };
+    const itemWhere: Prisma.DonationItemWhereInput = { donationList: listWhere, ...NOT_CANCELLED };
 
     const [
       donorCount,
@@ -178,10 +204,10 @@ export class DashboardService {
       this.prisma.organization.count({ where: { kind: OrganizationKind.NGO, deletedAt: null } }),
       this.prisma.donationItem.groupBy({
         by: ['status'],
-        where: { donationList: listWhere },
+        where: itemWhere,
         _count: { _all: true },
       }),
-      this.prisma.donationItem.aggregate({ where: { donationList: listWhere }, _sum: { quantity: true } }),
+      this.prisma.donationItem.aggregate({ where: itemWhere, _sum: { quantity: true } }),
       this.prisma.reservationItem.aggregate({
         where: { reservation: { status: ReservationStatus.COMPLETED } },
         _sum: { quantity: true },
@@ -194,12 +220,12 @@ export class DashboardService {
         JOIN donation_lists dl ON dl.id = di."donationListId"
         JOIN organizations o ON o.id = dl."donorOrganizationId"
         JOIN addresses a ON a.id = o."addressId"
-        WHERE dl."deletedAt" IS NULL
+        WHERE dl."deletedAt" IS NULL AND di.status <> 'CANCELLED'
         GROUP BY a.city
         ORDER BY count DESC`,
       this.prisma.donationItem.groupBy({
         by: ['category'],
-        where: { donationList: listWhere },
+        where: itemWhere,
         _count: { _all: true },
       }),
       this.prisma.$queryRaw<{ name: string; count: number }[]>`
@@ -207,7 +233,7 @@ export class DashboardService {
         FROM donation_items di
         JOIN donation_lists dl ON dl.id = di."donationListId"
         JOIN organizations o ON o.id = dl."donorOrganizationId"
-        WHERE dl."deletedAt" IS NULL
+        WHERE dl."deletedAt" IS NULL AND di.status <> 'CANCELLED'
         GROUP BY o.id, o."tradeName"
         ORDER BY count DESC
         LIMIT 5`,
@@ -225,7 +251,6 @@ export class DashboardService {
         donationsAvailable: totals.AVAILABLE,
         donationsCompleted: totals.FULLY_RESERVED,
         donationsExpired: totals.EXPIRED,
-        donationsCancelled: totals.CANCELLED,
         totalQuantityDonated,
         nodesOnline: nodes.filter((n) => n.lastHeartbeat && now - n.lastHeartbeat.getTime() < 45_000).length,
         nodesTotal: nodes.length,
@@ -234,10 +259,7 @@ export class DashboardService {
       donationsByCity: byCity,
       donationsByCategory: byCategory.map((g) => ({ category: g.category, count: g._count._all })),
       topDonors,
-      utilizationRatePercent:
-        totalQuantityOffered === 0
-          ? 0
-          : Math.round((totalQuantityDonated / totalQuantityOffered) * 1000) / 10,
+      utilizationRatePercent: utilizationRate(totalQuantityDonated, totalQuantityOffered),
     };
   }
 
@@ -257,10 +279,10 @@ export class DashboardService {
         status: DonationItemStatus.AVAILABLE,
         donationList: {
           status: DonationListStatus.OPEN,
-          expiresAt: { gt: new Date() },
           deletedAt: null,
           donorOrganization: { approvalStatus: ApprovalStatus.APPROVED },
         },
+        pickupDeadline: { gt: new Date() },
       },
       select: {
         id: true,
@@ -284,9 +306,11 @@ export class DashboardService {
 
   private async monthlySeries(donorOrganizationId?: string): Promise<MonthlyRow[]> {
     const since = monthsAgo(MONTHS_BACK);
+    // Doação cancelada não conta como doada; o que dela já tinha sido retirado
+    // antes do cancelamento, sim (a quantidade vem da reserva concluída).
     const rows = await this.prisma.$queryRaw<{ month: string; count: number; quantity: number }[]>`
       SELECT to_char(date_trunc('month', di."createdAt"), 'YYYY-MM') AS month,
-             COUNT(DISTINCT di.id)::int AS count,
+             COUNT(DISTINCT di.id) FILTER (WHERE di.status <> 'CANCELLED')::int AS count,
              COALESCE(SUM(CASE WHEN r.status = 'COMPLETED' THEN ri.quantity ELSE 0 END), 0)::float8 AS quantity
       FROM donation_items di
       JOIN donation_lists dl ON dl.id = di."donationListId"

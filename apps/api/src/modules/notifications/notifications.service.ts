@@ -167,6 +167,55 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Avisa o doador de que uma ONG reservou a doação dele. Sem isso, o doador
+   * só descobria a reserva abrindo o painel — e é ele quem precisa separar o
+   * alimento e estar lá para conferir o código na retirada.
+   */
+  async notifyDonorOfReservation(params: {
+    donationListId: string;
+    donorOrganizationId: string;
+    ngoName: string;
+    itemsSummary: string;
+  }) {
+    const links = await this.prisma.organizationUser.findMany({
+      where: { organizationId: params.donorOrganizationId },
+      include: { user: true },
+    });
+    if (links.length === 0) return;
+
+    const title = 'Sua doação foi reservada';
+    const message = `${params.ngoName} reservou ${params.itemsSummary}. Separe os itens e confira o código na retirada.`;
+
+    await this.prisma.notification.createMany({
+      data: links.map((link) => ({
+        userId: link.userId,
+        type: NotificationType.DONATION_RESERVED,
+        title,
+        message,
+        donationListId: params.donationListId,
+      })),
+    });
+
+    const appUrl = this.config.get<string>('webAppUrl');
+    for (const link of links) {
+      this.realtimeGateway.emitToUser(link.userId, 'notification:new', {
+        type: NotificationType.DONATION_RESERVED,
+        title,
+        message,
+        donationListId: params.donationListId,
+      });
+
+      if (link.user?.email && link.user.emailVerifiedAt) {
+        void this.mail.send({
+          to: link.user.email,
+          subject: title,
+          text: `${message}\n\nVeja as reservas recebidas em:\n${appUrl}/dashboard#reservas-recebidas`,
+        });
+      }
+    }
+  }
+
   /** Sem preferência declarada, a ONG recebe tudo (padrão). */
   private matchesCategories(preferred: DonationCategory[], donationCategories: DonationCategory[]) {
     if (preferred.length === 0 || donationCategories.length === 0) return true;

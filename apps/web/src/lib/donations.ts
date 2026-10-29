@@ -26,6 +26,8 @@ export interface DonationItem {
   imageUrl?: string | null;
   allergens?: string | null;
   storageCondition?: string | null;
+  pickupDeadline: string;
+  expiresAt: string;
 }
 
 export interface DonationList {
@@ -34,8 +36,10 @@ export interface DonationList {
   status: DonationListStatus;
   notes?: string | null;
   availableAt: string;
+  /** O mais tardio entre os itens: cada item tem o seu prazo e a sua validade. */
   pickupDeadline: string;
   expiresAt: string;
+  createdAt: string;
   items: DonationItem[];
   donorOrganization?: {
     tradeName: string;
@@ -58,6 +62,9 @@ export interface CreateDonationItemInput {
   storageCondition?: string;
   imageUrl?: string;
   allergens?: string;
+  /** Só com reserva parcial; sem ela, vale o prazo único da lista. */
+  pickupDeadline?: string;
+  expiresAt: string;
 }
 
 export interface CreateDonationListInput {
@@ -65,15 +72,15 @@ export interface CreateDonationListInput {
   allowPartial: boolean;
   notes?: string;
   availableAt: string;
-  pickupDeadline: string;
-  expiresAt: string;
+  /** Prazo único, para a lista sem reserva parcial. */
+  pickupDeadline?: string;
 }
 
 export interface UpdateDonationListInput {
   notes?: string;
   availableAt?: string;
   pickupDeadline?: string;
-  expiresAt?: string;
+  items?: { id: string; pickupDeadline?: string; expiresAt?: string }[];
 }
 
 export interface DonationListsPage {
@@ -118,35 +125,124 @@ export async function uploadImage(file: File) {
   return data.url;
 }
 
-export interface DonationDates {
-  availableAt: string;
+const DAY_MS = 86_400_000;
+
+export interface ItemDateValues {
   pickupDeadline: string;
   expiresAt: string;
 }
 
+export interface DonationDateIssue {
+  index: number;
+  field: keyof ItemDateValues;
+  message: string;
+}
+
 /**
- * As mesmas regras de data que a API aplica, checadas antes do envio para o
- * erro aparecer embaixo do campo certo — e não só como um aviso genérico no fim
- * do formulário depois da ida ao servidor.
+ * As mesmas regras de data que a API aplica, item a item, checadas antes do
+ * envio para o erro aparecer embaixo do campo certo — e não só como um aviso
+ * genérico no fim do formulário depois da ida ao servidor:
+ * - retirada depois do início da disponibilidade e ao menos 1 dia depois da
+ *   publicação;
+ * - validade ao menos 1 dia depois da retirada (nunca no mesmo dia).
  */
-export function donationDateIssues({ availableAt, pickupDeadline, expiresAt }: DonationDates) {
-  const issues: { field: keyof DonationDates; message: string }[] = [];
-  if (!availableAt || !pickupDeadline || !expiresAt) return issues;
+export function donationDateIssues({
+  availableAt,
+  postedAt = new Date(),
+  items,
+}: {
+  availableAt: string;
+  postedAt?: Date;
+  items: ItemDateValues[];
+}) {
+  const issues: DonationDateIssue[] = [];
+  const available = availableAt ? new Date(availableAt) : null;
 
-  const available = new Date(availableAt);
-  const deadline = new Date(pickupDeadline);
-  const expires = new Date(expiresAt);
+  items.forEach(({ pickupDeadline, expiresAt }, index) => {
+    if (!pickupDeadline) return;
+    const deadline = new Date(pickupDeadline);
 
-  if (deadline <= available) {
-    issues.push({
-      field: 'pickupDeadline',
-      message: 'O prazo de retirada precisa ser depois da disponibilidade.',
-    });
-  }
-  if (deadline > expires) {
-    issues.push({ field: 'expiresAt', message: 'A validade não pode ser antes do prazo de retirada.' });
-  } else if (expires <= new Date()) {
-    issues.push({ field: 'expiresAt', message: 'Essa validade já passou.' });
-  }
+    if (available && deadline <= available) {
+      issues.push({
+        index,
+        field: 'pickupDeadline',
+        message: 'O prazo de retirada precisa ser depois da disponibilidade.',
+      });
+    } else if (deadline.getTime() < postedAt.getTime() + DAY_MS) {
+      issues.push({
+        index,
+        field: 'pickupDeadline',
+        message: 'O prazo de retirada precisa ser de pelo menos 1 dia depois da publicação.',
+      });
+    }
+
+    if (expiresAt && new Date(expiresAt).getTime() < deadline.getTime() + DAY_MS) {
+      issues.push({
+        index,
+        field: 'expiresAt',
+        message: 'A validade precisa ser de pelo menos 1 dia depois do prazo de retirada.',
+      });
+    }
+  });
   return issues;
+}
+
+/** Menor prazo de retirada aceito numa publicação feita agora (para o `min` do campo). */
+export function minPickupDeadline(postedAt = new Date()) {
+  return new Date(postedAt.getTime() + DAY_MS);
+}
+
+/** Menor validade aceita para um prazo de retirada (para o `min` do campo). */
+export function minExpiresAt(pickupDeadline: string) {
+  return pickupDeadline ? new Date(new Date(pickupDeadline).getTime() + DAY_MS) : undefined;
+}
+
+/**
+ * A data, se for a mesma em todos os itens — aí ela aparece uma vez só, na
+ * lista; senão, cada item mostra a sua.
+ */
+export function sharedItemDate(items: Pick<DonationItem, 'pickupDeadline' | 'expiresAt'>[], key: keyof ItemDateValues) {
+  const first = items[0]?.[key];
+  if (!first) return null;
+  const time = new Date(first).getTime();
+  return items.every((item) => new Date(item[key]).getTime() === time) ? first : null;
+}
+
+/** A primeira de uma lista de datas — o prazo que vence antes. */
+export function earliestDate(dates: (string | undefined)[]) {
+  const times = dates.filter((date): date is string => !!date).map((date) => new Date(date).getTime());
+  return times.length > 0 ? new Date(Math.min(...times)).toISOString() : undefined;
+}
+
+/** Valores iniciais do formulário de doação nova feita a partir de uma já existente. */
+export interface DonationDraft {
+  allowPartial: boolean;
+  notes: string;
+  items: (Omit<CreateDonationItemInput, 'batch' | 'storageCondition' | 'pickupDeadline'> & {
+    pickupDeadline: string;
+  })[];
+}
+
+/**
+ * Rascunho de uma doação nova a partir de uma já feita: os mesmos alimentos,
+ * quantidades e combinados. As datas não vêm junto — as antigas já passaram, e
+ * a validade de cada alimento é do lote novo, então precisa ser informada de
+ * novo, conscientemente.
+ */
+export function draftFromDonation(donationList: DonationList): DonationDraft {
+  return {
+    allowPartial: donationList.allowPartial,
+    notes: donationList.notes ?? '',
+    items: donationList.items.map((item) => ({
+      foodName: item.foodName,
+      category: item.category,
+      description: item.description ?? '',
+      quantity: item.quantity,
+      unit: item.unit,
+      allergens: item.allergens ?? '',
+      imageUrl: item.imageUrl ?? '',
+      pickupDeadline: '',
+      expiresAt: '',
+    })),
+  };
 }

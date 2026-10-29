@@ -55,17 +55,27 @@ export class CreateTemplateDto {
   @Max(6)
   weekday?: number;
 
-  @ApiPropertyOptional({ default: 4, description: 'Horas de janela para retirada a partir da publicação.' })
+  // Mesmas regras da doação manual: retirada com pelo menos 1 dia a partir da
+  // publicação, validade pelo menos 1 dia depois da retirada.
+  @ApiPropertyOptional({
+    default: 24,
+    minimum: 24,
+    description: 'Horas de janela para retirada a partir da publicação.',
+  })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(24)
   @Max(72)
   pickupWindowHours?: number;
 
-  @ApiPropertyOptional({ default: 8, description: 'Horas até a validade a partir da publicação.' })
+  @ApiPropertyOptional({
+    default: 48,
+    minimum: 48,
+    description: 'Horas até a validade a partir da publicação (ao menos 24h depois da janela de retirada).',
+  })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(48)
   @Max(168)
   expiresInHours?: number;
 

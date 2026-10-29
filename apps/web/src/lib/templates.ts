@@ -3,6 +3,10 @@ import type { CreateDonationItemInput } from './donations';
 
 export type DonationRecurrence = 'DAILY' | 'WEEKDAYS' | 'WEEKLY';
 
+// As datas da doação gerada saem da janela do modelo (pickupWindowHours e
+// expiresInHours), não de cada item.
+type TemplateItem = Omit<CreateDonationItemInput, 'pickupDeadline' | 'expiresAt'>;
+
 export const RECURRENCE_LABEL: Record<DonationRecurrence, string> = {
   DAILY: 'Todo dia',
   WEEKDAYS: 'De segunda a sexta',
@@ -16,7 +20,7 @@ export interface DonationTemplate {
   name: string;
   allowPartial: boolean;
   notes?: string | null;
-  items: CreateDonationItemInput[];
+  items: TemplateItem[];
   recurrence: DonationRecurrence;
   hourOfDay: number;
   weekday?: number | null;
@@ -28,7 +32,7 @@ export interface DonationTemplate {
 
 export interface CreateTemplateInput {
   name: string;
-  items: CreateDonationItemInput[];
+  items: TemplateItem[];
   allowPartial: boolean;
   notes?: string;
   recurrence: DonationRecurrence;

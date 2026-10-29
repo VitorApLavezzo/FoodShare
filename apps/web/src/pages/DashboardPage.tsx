@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { APPROVAL_STATUS_LABEL as APPROVAL_LABEL } from '@foodshare/types';
 import { useAuth } from '../context/AuthContext';
@@ -8,6 +8,7 @@ import { type Organization } from '../lib/organizations';
 import { useMyOrganization } from '../lib/use-my-organization';
 import { OrganizationForm } from '../components/OrganizationForm';
 import { DonationForm } from '../components/DonationForm';
+import { draftFromDonation, type DonationDraft, type DonationList } from '../lib/donations';
 import { DonationsList } from '../components/DonationsList';
 import { ReservationsList } from '../components/ReservationsList';
 import { DonationTemplatesPanel } from '../components/DonationTemplatesPanel';
@@ -67,9 +68,40 @@ export function DashboardPage() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const [showDonationForm, setShowDonationForm] = useState(false);
+  // Doação nova a partir de uma já feita. O `key` remonta o formulário a cada
+  // rascunho, para os valores iniciais valerem de novo.
+  const [donationDraft, setDonationDraft] = useState<{ key: string; draft: DonationDraft } | null>(null);
+  const donationFormRef = useRef<HTMLDivElement>(null);
   const organizationQuery = useMyOrganization();
   const { kind } = organizationQuery;
+
+  const startFromDonation = useCallback((donationList: DonationList) => {
+    setDonationDraft({ key: `${donationList.id}-${Date.now()}`, draft: draftFromDonation(donationList) });
+    setShowDonationForm(true);
+  }, []);
+
+  const closeDonationForm = () => {
+    setShowDonationForm(false);
+    setDonationDraft(null);
+  };
+
+  // "Doar de novo" na tela de detalhe chega aqui com a doação no state da
+  // navegação; o state é limpo em seguida para um F5 não reabrir o rascunho.
+  const repeatDonation = (location.state as { repeatDonation?: DonationList } | null)?.repeatDonation;
+  useEffect(() => {
+    if (!repeatDonation) return;
+    startFromDonation(repeatDonation);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [repeatDonation, startFromDonation, navigate, location.pathname]);
+
+  // O formulário só aparece depois que o cadastro carrega: vindo do detalhe, a
+  // rolagem espera por ele.
+  const approvalStatus = organizationQuery.data?.approvalStatus;
+  useEffect(() => {
+    if (donationDraft) donationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [donationDraft, approvalStatus]);
 
   // O React Router não rola até a âncora sozinho, e as seções só existem depois
   // que o cadastro carrega — "Ver minhas reservas" caía no topo da página.
@@ -201,7 +233,7 @@ export function DashboardPage() {
                   <h2 className="font-display text-[22px] font-semibold text-leaf-800">Minhas doações</h2>
                   <Button
                     variant={showDonationForm ? 'secondary' : 'primary'}
-                    onClick={() => setShowDonationForm((prev) => !prev)}
+                    onClick={() => (showDonationForm ? closeDonationForm() : setShowDonationForm(true))}
                     aria-expanded={showDonationForm}
                   >
                     {showDonationForm ? 'Fechar' : 'Nova doação'}
@@ -209,11 +241,13 @@ export function DashboardPage() {
                 </div>
 
                 {showDonationForm && (
-                  <div className="rounded-3xl border border-line bg-surface p-6">
+                  <div ref={donationFormRef} className="scroll-mt-24 rounded-3xl border border-line bg-surface p-6">
                     <DonationForm
-                      onCancel={() => setShowDonationForm(false)}
+                      key={donationDraft?.key ?? 'new'}
+                      draft={donationDraft?.draft}
+                      onCancel={closeDonationForm}
                       onCreated={() => {
-                        setShowDonationForm(false);
+                        closeDonationForm();
                         queryClient.invalidateQueries({ queryKey: ['donations'] });
                         showToast('Doação publicada! As ONGs por perto já foram avisadas.', 'success');
                       }}
@@ -221,7 +255,7 @@ export function DashboardPage() {
                   </div>
                 )}
 
-                <DonationsList mode="own" />
+                <DonationsList mode="own" onRepeat={startFromDonation} />
               </section>
             )}
 

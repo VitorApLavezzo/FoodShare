@@ -217,6 +217,10 @@ model DonationList {
   status              DonationListStatus @default(OPEN)
   notes               String?
   availableAt         DateTime
+  // Prazo e validade de verdade moram em cada item (cada alimento tem a sua
+  // validade, e com aceite parcial cada um pode ter seu prazo de retirada).
+  // Aqui fica o mais tardio de cada um: é o que diz até quando a lista inteira
+  // ainda pode ter alguma coisa acontecendo.
   pickupDeadline      DateTime
   expiresAt           DateTime
   version             Int                @default(1)
@@ -263,9 +267,10 @@ model DonationTemplate {
   hourOfDay           Int
   // Para WEEKLY: dia da semana (0=domingo).
   weekday             Int?
-  // Janela da oferta gerada, em horas a partir da publicação.
-  pickupWindowHours   Int                @default(4)
-  expiresInHours      Int                @default(8)
+  // Janela da oferta gerada, em horas a partir da publicação. Mesmas regras da
+  // doação manual: retirada com ao menos 24h e validade 24h depois dela.
+  pickupWindowHours   Int                @default(24)
+  expiresInHours      Int                @default(48)
   isActive            Boolean            @default(true)
   lastGeneratedAt     DateTime?
   createdAt           DateTime           @default(now())
@@ -302,6 +307,9 @@ model DonationItem {
   // registro do estado em que o item foi ofertado.
   imageUrl          String?
   allergens         String?
+  // Lista sem aceite parcial: todos os itens compartilham o mesmo prazo.
+  pickupDeadline    DateTime
+  expiresAt         DateTime
   status            DonationItemStatus @default(AVAILABLE)
   version           Int                @default(1)
   createdAt         DateTime           @default(now())
@@ -312,6 +320,7 @@ model DonationItem {
   @@index([status])
   @@index([category])
   @@index([donationListId])
+  @@index([pickupDeadline])
   @@map("donation_items")
 }
 

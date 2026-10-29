@@ -43,6 +43,9 @@ export class TemplatesSchedulerJob {
       if (!this.isDue(template, now)) continue;
 
       const items = template.items as unknown as CreateDonationItemDto[];
+      // A janela do modelo vale para todos os itens gerados.
+      const pickupDeadline = new Date(now.getTime() + template.pickupWindowHours * 3_600_000);
+      const expiresAt = new Date(now.getTime() + template.expiresInHours * 3_600_000);
       const list = await this.prisma.donationList.create({
         data: {
           donorOrganizationId: template.donorOrganizationId,
@@ -50,10 +53,12 @@ export class TemplatesSchedulerJob {
           allowPartial: template.allowPartial,
           notes: template.notes,
           availableAt: now,
-          pickupDeadline: new Date(now.getTime() + template.pickupWindowHours * 3_600_000),
-          expiresAt: new Date(now.getTime() + template.expiresInHours * 3_600_000),
+          pickupDeadline,
+          expiresAt,
           items: {
             create: items.map((item) => ({
+              pickupDeadline,
+              expiresAt,
               foodName: item.foodName,
               category: item.category,
               description: item.description,

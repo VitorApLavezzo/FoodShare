@@ -30,23 +30,34 @@ const STEPS = [
   },
 ];
 
-const STATS = [
-  { value: '3', label: 'perfis de acesso' },
-  { value: '100%', label: 'rastreável' },
-  { value: 'multi-região', label: 'arquitetura distribuída' },
-];
+interface PublicStats {
+  profiles: number;
+}
 
 export function HomePage() {
   const { user } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<PublicStats | null>(null);
 
   useEffect(() => {
     api
       .get<HealthResponse>('/ready')
       .then((res) => setHealth(res.data))
       .catch(() => setError('offline'));
+    // O primeiro número era um "3" fixo (os três papéis de acesso) e parecia
+    // um contador travado; agora é a contagem real de doadores e ONGs.
+    api
+      .get<PublicStats>('/dashboard/public')
+      .then((res) => setStats(res.data))
+      .catch(() => setStats(null));
   }, []);
+
+  const statItems = [
+    { value: stats ? stats.profiles.toLocaleString('pt-BR') : '—', label: 'perfis cadastrados' },
+    { value: '100%', label: 'rastreável' },
+    { value: 'multi-região', label: 'arquitetura distribuída' },
+  ];
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -103,7 +114,7 @@ export function HomePage() {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-9">
-            {STATS.map((s) => (
+            {statItems.map((s) => (
               <div key={s.label}>
                 <p className="font-display text-[28px] leading-none font-semibold text-leaf-800">{s.value}</p>
                 <p className="mt-1 text-[13px] text-ink-muted">{s.label}</p>

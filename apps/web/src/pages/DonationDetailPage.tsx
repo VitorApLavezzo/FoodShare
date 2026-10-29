@@ -6,17 +6,24 @@ import {
   CATEGORY_LABEL,
   DONATION_ITEM_STATUS_LABEL,
   DONATION_LIST_STATUS_LABEL,
+  earliestDate,
   fetchDonation,
+  sharedItemDate,
   type DonationItem,
   type DonationList,
 } from '../lib/donations';
-import { cancelReservation, fetchReservations, type Reservation } from '../lib/reservations';
+import {
+  cancelReservation,
+  fetchReservations,
+  reservationPickupDeadline,
+  type Reservation,
+} from '../lib/reservations';
 import { formatDateTime, formatQuantity, isDeadlineClose, timeUntil } from '../lib/format';
 import { directionsUrl, formatAddress } from '../lib/address';
 import { getApiErrorMessage } from '../lib/api';
 import { AppHeader } from '../components/layout/AppHeader';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
-import { ButtonLink, InlineDangerButton } from '../components/ui/Button';
+import { Button, ButtonLink, InlineDangerButton } from '../components/ui/Button';
 import { QueryState } from '../components/ui/QueryState';
 import { ReservePanel } from '../components/ReservePanel';
 import { useReserveDonation, type ItemSelection, type ReserveDonation } from '../lib/use-reserve-donation';
@@ -103,7 +110,18 @@ function PickupCard({ donationList }: { donationList: DonationList }) {
   const donor = donationList.donorOrganization;
   const isOpen = donationList.status === 'OPEN';
   const notYetAvailable = new Date(donationList.availableAt).getTime() > Date.now();
-  const urgent = isOpen && isDeadlineClose(donationList.pickupDeadline);
+  // Com prazos diferentes por item, o que pede atenção é o próximo a vencer
+  // entre os que ainda dá para reservar; o prazo de cada um aparece no item.
+  const sharedDeadline = sharedItemDate(donationList.items, 'pickupDeadline');
+  const sharedExpiry = sharedItemDate(donationList.items, 'expiresAt');
+  const nextDeadline =
+    sharedDeadline ??
+    earliestDate(
+      donationList.items
+        .filter((item) => item.status === 'AVAILABLE' && new Date(item.pickupDeadline).getTime() > Date.now())
+        .map((item) => item.pickupDeadline),
+    );
+  const urgent = isOpen && !!nextDeadline && isDeadlineClose(nextDeadline);
 
   return (
     <section className="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-5">
@@ -125,14 +143,18 @@ function PickupCard({ donationList }: { donationList: DonationList }) {
       )}
 
       <InfoRow icon={<ClockIcon />} label="Retirar até">
-        <span className="font-semibold text-ink">{formatDateTime(donationList.pickupDeadline)}</span>
-        {isOpen && (
+        {sharedDeadline ? (
+          <span className="font-semibold text-ink">{formatDateTime(sharedDeadline)}</span>
+        ) : (
+          <span className="font-semibold text-ink">Cada item tem o seu prazo</span>
+        )}
+        {isOpen && nextDeadline && (
           <span
             className={`ml-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${
               urgent ? 'bg-danger-50 text-danger' : 'bg-sun-100 text-sun-800'
             }`}
           >
-            {timeUntil(donationList.pickupDeadline)}
+            {sharedDeadline ? timeUntil(nextDeadline) : `o próximo: ${timeUntil(nextDeadline)}`}
           </span>
         )}
         {notYetAvailable && (
@@ -144,7 +166,7 @@ function PickupCard({ donationList }: { donationList: DonationList }) {
       </InfoRow>
 
       <InfoRow icon={<CalendarIcon />} label="Validade do alimento">
-        {formatDateTime(donationList.expiresAt)}
+        {sharedExpiry ? formatDateTime(sharedExpiry) : 'Varia por item — veja em cada um.'}
       </InfoRow>
 
       {/* Recado do doador em âmbar: é instrução prática para a retirada
@@ -177,10 +199,15 @@ function ItemCard({
   item,
   selection,
   reserve,
+  showDeadline,
+  showExpiry,
 }: {
   item: DonationItem;
   selection?: ItemSelection;
   reserve?: ReserveDonation;
+  /** Datas que variam entre os itens aparecem em cada um, não no quadro de retirada. */
+  showDeadline: boolean;
+  showExpiry: boolean;
 }) {
   const quantityId = useId();
   const available = item.status === 'AVAILABLE';
@@ -208,6 +235,13 @@ function ItemCard({
             ? `${formatQuantity(item.remainingQuantity, item.unit)} disponíveis de ${formatQuantity(item.quantity, item.unit)}`
             : formatQuantity(item.quantity, item.unit)}
         </p>
+        {(showDeadline || showExpiry) && (
+          <p className="mt-0.5 text-sm text-ink-soft">
+            {showDeadline && <>Retirar até {formatDateTime(item.pickupDeadline)}</>}
+            {showDeadline && showExpiry && ' · '}
+            {showExpiry && <>Validade {formatDateTime(item.expiresAt)}</>}
+          </p>
+        )}
         {item.description && <p className="mt-1 text-sm text-ink-soft">{item.description}</p>}
         {item.allergens && (
           <p className="mt-1 text-sm font-semibold text-sun-700">⚠ Alergênicos: {item.allergens}</p>
@@ -298,6 +332,7 @@ function MyReservationCard({
   cancelling: boolean;
 }) {
   const donor = donationList.donorOrganization;
+  const pickupDeadline = reservationPickupDeadline(reservation);
   const items = reservation.items
     .map(
       (i) => `${i.donationItem?.foodName ?? ''} (${formatQuantity(i.quantity, i.donationItem?.unit ?? '')})`,
@@ -350,8 +385,7 @@ function MyReservationCard({
           <span>
             Vá até <strong>{donor?.tradeName ?? 'o doador'}</strong>
             {donor && <> ({formatAddress(donor.address)})</>} até{' '}
-            <strong>{formatDateTime(donationList.pickupDeadline)}</strong> —{' '}
-            {timeUntil(donationList.pickupDeadline)}.
+            <strong>{formatDateTime(pickupDeadline)}</strong> — {timeUntil(pickupDeadline)}.
             {donor && (
               <>
                 {' '}
@@ -422,7 +456,10 @@ function DonationDetail({
   const { user } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const isNgo = user?.role === 'NGO';
+  const showItemDeadline = !sharedItemDate(donationList.items, 'pickupDeadline');
+  const showItemExpiry = !sharedItemDate(donationList.items, 'expiresAt');
 
   const reserve = useReserveDonation(donationList);
   // Uma reserva ativa por ONG em cada doação (regra também da API): com uma já
@@ -516,6 +553,8 @@ function DonationDetail({
                 item={item}
                 selection={reserve.selections[item.id]}
                 reserve={picking ? reserve : undefined}
+                showDeadline={showItemDeadline}
+                showExpiry={showItemExpiry}
               />
             ))}
           </section>
@@ -548,9 +587,17 @@ function DonationDetail({
               <p className="text-sm text-ink-soft">
                 Esta doação é sua. Edite, cancele ou confirme retiradas pelo painel.
               </p>
-              <ButtonLink to="/dashboard" variant="secondary" className="self-start">
-                Gerenciar no painel
-              </ButtonLink>
+              <div className="flex flex-wrap gap-2">
+                <ButtonLink to="/dashboard" variant="secondary">
+                  Gerenciar no painel
+                </ButtonLink>
+                <Button
+                  variant="secondary"
+                  onClick={() => navigate('/dashboard', { state: { repeatDonation: donationList } })}
+                >
+                  Doar de novo
+                </Button>
+              </div>
             </div>
           )}
         </aside>

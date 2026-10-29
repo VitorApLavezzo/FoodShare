@@ -25,40 +25,56 @@ export class DonationsExpirationJob {
     await this.leaderLock.runExclusively('donations-expiration', () => this.run());
   }
 
+  /**
+   * O prazo de retirada é de cada item: passado o dele, o item sai da oferta
+   * mesmo que os outros da lista continuem disponíveis. A lista só encerra
+   * quando não sobra nada reservável nela.
+   */
   private async run() {
-    const overdue = await this.prisma.donationList.findMany({
+    const now = new Date();
+    const overdue = await this.prisma.donationItem.findMany({
       where: {
-        status: { in: [DonationListStatus.OPEN, DonationListStatus.FULLY_RESERVED] },
-        expiresAt: { lt: new Date() },
-        deletedAt: null,
+        status: DonationItemStatus.AVAILABLE,
+        pickupDeadline: { lt: now },
+        donationList: { deletedAt: null },
       },
-      select: { id: true, nodeId: true },
+      select: { id: true, donationListId: true, donationList: { select: { nodeId: true } } },
     });
 
     if (overdue.length === 0) return;
 
-    for (const list of overdue) {
-      await this.prisma.$transaction(async (tx) => {
+    const byList = new Map<string, { nodeId: string; itemIds: string[] }>();
+    for (const item of overdue) {
+      const entry = byList.get(item.donationListId) ?? { nodeId: item.donationList.nodeId, itemIds: [] };
+      entry.itemIds.push(item.id);
+      byList.set(item.donationListId, entry);
+    }
+
+    for (const [donationListId, { nodeId, itemIds }] of byList) {
+      const status = await this.prisma.$transaction(async (tx) => {
         // Item não retirado vira EXPIRED (não CANCELLED): preserva a diferença
         // entre "o doador desistiu" e "venceu sem ninguém buscar" nos relatórios.
         await tx.donationItem.updateMany({
-          where: { donationListId: list.id, status: DonationItemStatus.AVAILABLE },
+          where: { id: { in: itemIds }, status: DonationItemStatus.AVAILABLE },
           data: { status: DonationItemStatus.EXPIRED },
         });
-        await recomputeDonationListStatus(tx, list.id);
+        return recomputeDonationListStatus(tx, donationListId);
       });
 
       await this.auditLogService.record({
         entity: 'DonationList',
-        entityId: list.id,
-        donationListId: list.id,
-        eventType: 'DONATION_LIST_EXPIRED',
-        nodeId: list.nodeId,
-        newData: { status: DonationListStatus.EXPIRED },
+        entityId: donationListId,
+        donationListId,
+        eventType: status === DonationListStatus.EXPIRED ? 'DONATION_LIST_EXPIRED' : 'DONATION_ITEMS_EXPIRED',
+        nodeId,
+        newData: { status, expiredItemIds: itemIds },
       });
-      await this.notificationsService.removeForDonationList(list.id);
+      // Sem nada reservável, o alerta de "doação disponível" perdeu o sentido.
+      if (status !== DonationListStatus.OPEN) {
+        await this.notificationsService.removeForDonationList(donationListId);
+      }
     }
 
-    this.logger.log(`${overdue.length} lista(s) de doação encerrada(s) por expiração.`);
+    this.logger.log(`${overdue.length} item(ns) de doação encerrado(s) por fim do prazo de retirada.`);
   }
 }

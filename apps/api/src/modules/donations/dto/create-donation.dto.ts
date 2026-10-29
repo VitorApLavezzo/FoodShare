@@ -39,11 +39,17 @@ export class CreateDonationDto {
   @IsDateString()
   availableAt!: string;
 
-  @ApiProperty({ description: 'Prazo limite para retirada.' })
+  @ApiProperty({
+    required: false,
+    description:
+      'Prazo limite para retirada, aplicado aos itens sem prazo próprio. Obrigatório quando allowPartial=false (prazo único).',
+  })
+  @IsOptional()
   @IsDateString()
-  pickupDeadline!: string;
+  pickupDeadline?: string;
 
-  @ApiProperty({ description: 'Validade da lista.' })
+  @ApiProperty({ required: false, description: 'Validade aplicada aos itens sem validade própria.' })
+  @IsOptional()
   @IsDateString()
-  expiresAt!: string;
+  expiresAt?: string;
 }

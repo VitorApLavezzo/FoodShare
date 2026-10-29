@@ -11,7 +11,15 @@ export class ReportsService {
 
   // Unidade do relatório é o item (não a lista) - reflete o que de fato foi
   // ofertado/distribuído, já que uma lista pode ter itens com destinos distintos.
-  private buildWhere(query: ReportQueryDto): Prisma.DonationItemWhereInput {
+  //
+  // Item cancelado pelo doador fica de fora: a doação não aconteceu, e contá-la
+  // inflava o total ofertado (o histórico dela continua na auditoria). Só a
+  // soma do que foi entregue o inclui — se uma parte já tinha sido retirada
+  // antes do cancelamento, aquela comida chegou a quem precisava.
+  private buildWhere(
+    query: ReportQueryDto,
+    { includeCancelled = false }: { includeCancelled?: boolean } = {},
+  ): Prisma.DonationItemWhereInput {
     const where: Prisma.DonationItemWhereInput = { donationList: { deletedAt: null } };
 
     if (query.startDate || query.endDate) {
@@ -22,6 +30,7 @@ export class ReportsService {
     }
     if (query.category) where.category = query.category;
     if (query.status) where.status = query.status;
+    else if (!includeCancelled) where.status = { not: DonationItemStatus.CANCELLED };
 
     const donationListWhere: Prisma.DonationListWhereInput = { deletedAt: null };
     if (query.donorOrganizationId) donationListWhere.donorOrganizationId = query.donorOrganizationId;
@@ -66,15 +75,15 @@ export class ReportsService {
       donorState: item.donationList.donorOrganization.address.state,
       ngoName: item.reservationItems[0]?.reservation.ngoOrganization.tradeName ?? '',
       createdAt: item.createdAt.toISOString(),
-      pickupDeadline: item.donationList.pickupDeadline.toISOString(),
-      expiresAt: item.donationList.expiresAt.toISOString(),
+      pickupDeadline: item.pickupDeadline.toISOString(),
+      expiresAt: item.expiresAt.toISOString(),
     }));
   }
 
   /**
    * Agregado em SQL em vez de carregar todos os itens na memória. Expirado e
-   * cancelado voltaram a ser métricas distintas — antes ambos viravam
-   * CANCELLED no banco e `totalExpired` ficava fixo em zero.
+   * cancelado continuam distintos no banco, mas cancelado não entra mais no
+   * relatório (ver `buildWhere`).
    */
   async getImpactReport(query: ReportQueryDto) {
     const where = this.buildWhere(query);
@@ -83,7 +92,10 @@ export class ReportsService {
       this.prisma.donationItem.groupBy({ by: ['status'], where, _count: { _all: true } }),
       this.prisma.donationItem.count({ where }),
       this.prisma.reservationItem.aggregate({
-        where: { reservation: { status: ReservationStatus.COMPLETED }, donationItem: where },
+        where: {
+          reservation: { status: ReservationStatus.COMPLETED },
+          donationItem: this.buildWhere(query, { includeCancelled: true }),
+        },
         _sum: { quantity: true },
       }),
       this.prisma.$queryRaw<{ city: string; donations: number; quantity: number }[]>`
@@ -107,7 +119,6 @@ export class ReportsService {
       totalDonations,
       totalCompleted: countFor(DonationItemStatus.FULLY_RESERVED),
       totalExpired: countFor(DonationItemStatus.EXPIRED),
-      totalCancelled: countFor(DonationItemStatus.CANCELLED),
       totalQuantityDistributed: delivered._sum.quantity?.toNumber() ?? 0,
       impactByRegion: byRegion,
     };

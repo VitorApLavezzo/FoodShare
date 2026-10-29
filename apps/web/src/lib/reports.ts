@@ -20,7 +20,6 @@ export interface ImpactReport {
   totalDonations: number;
   totalCompleted: number;
   totalExpired: number;
-  totalCancelled: number;
   totalQuantityDistributed: number;
   impactByRegion: { city: string; donations: number; quantity: number }[];
 }
